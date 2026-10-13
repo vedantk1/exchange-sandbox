@@ -10,6 +10,7 @@ import { sql, type Selectable, type Transaction } from 'kysely';
 import { requirePrincipal } from './auth/access.js';
 import { AuthError } from './auth/errors.js';
 import type { Exchange } from './exchange.js';
+import { simulatorInventory } from './demo-market/inventory.js';
 import { fillView, orderView } from './views.js';
 
 export const HISTORY_LIMIT = 100;
@@ -393,7 +394,14 @@ export async function workspaceSnapshot(exchange: Exchange, token: string): Prom
     const cursor = await currentCursor(tx, sessionId);
     const demo = await tx
       .selectFrom('demo_market')
-      .select(['enabled', 'status', 'updated_at', 'maker_account_id', 'taker_account_id'])
+      .select([
+        'enabled',
+        'status',
+        'updated_at',
+        'maker_account_id',
+        'taker_account_id',
+        'reference_price',
+      ])
       .where('session_id', '=', sessionId)
       .executeTakeFirst();
     const demoMarket = demo
@@ -432,6 +440,14 @@ export async function workspaceSnapshot(exchange: Exchange, token: string): Prom
                     ...demoMarket,
                     makerAccountId: demo.maker_account_id,
                     takerAccountId: demo.taker_account_id,
+                    referencePrice: formatPrice(BigInt(demo.reference_price)),
+                    inventory: await simulatorInventory(
+                      tx,
+                      sessionId,
+                      demo.maker_account_id,
+                      demo.taker_account_id,
+                      BigInt(demo.reference_price),
+                    ),
                   }
                 : undefined,
             ),

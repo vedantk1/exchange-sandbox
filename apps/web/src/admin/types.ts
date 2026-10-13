@@ -3,6 +3,7 @@ import type { CommandOutcome } from '../lib/api';
 
 export type AdminData = NonNullable<WorkspaceView['admin']>;
 export type Trader = AdminData['traders'][number];
+export type GrantTarget = { accountId: string; label: string };
 
 export interface AdminWorkspaceProps {
   workspace: WorkspaceView;
@@ -24,6 +25,6 @@ export interface AdminAction {
   target?: string;
   danger?: boolean;
   secret?: 'join' | 'recover';
-  grant?: Trader;
+  grant?: GrantTarget;
   payload?: Record<string, unknown>;
 }

@@ -155,18 +155,17 @@ describe('consistent trader and administrator workspaces', () => {
 
   it('labels synthetic activity without exposing its account identities to traders', async () => {
     const trader = await context.trader('trader');
-    const makerAccountId = randomUUID();
-    const takerAccountId = randomUUID();
-    await context.sql.query(
-      `INSERT INTO accounts (id, kind, label) VALUES
-        ($1, 'TRADER', 'Demo market maker'), ($2, 'TRADER', 'Demo market taker')`,
-      [makerAccountId, takerAccountId],
-    );
-    await context.sql.query(
-      `INSERT INTO demo_market (session_id, maker_account_id, taker_account_id, enabled, status)
-        VALUES ($1, $2, $3, true, 'RUNNING')`,
-      [context.sessionId, makerAccountId, takerAccountId],
-    );
+    expect(
+      (
+        await context.admin.request('POST', '/api/admin/simulator/start', {
+          commandId: randomUUID(),
+          sessionId: context.sessionId,
+          reason: 'Prepare simulator inventory',
+        })
+      ).json(),
+    ).toMatchObject({ status: 'ACCEPTED' });
+    const initial = (await context.admin.request('GET', '/api/workspace')).json<WorkspaceView>();
+    const { makerAccountId, takerAccountId } = initial.admin!.overview.demoMarket!;
     const paused = (await trader.browser.request('GET', '/api/workspace')).json<WorkspaceView>();
     expect(paused.market.demoMarket).toEqual({
       enabled: true,
@@ -175,6 +174,7 @@ describe('consistent trader and administrator workspaces', () => {
     });
     expect(JSON.stringify(paused)).not.toContain(makerAccountId);
     expect(JSON.stringify(paused)).not.toContain(takerAccountId);
+    expect(paused.market.demoMarket).not.toHaveProperty('inventory');
     await context.marketState('resume');
     const admin = (await context.admin.request('GET', '/api/workspace')).json<WorkspaceView>();
     expect(admin.admin?.overview.demoMarket).toMatchObject({
@@ -198,6 +198,107 @@ describe('consistent trader and administrator workspaces', () => {
     await context.sql.query("UPDATE demo_market SET enabled = false, status = 'STOPPED'");
     const stopped = (await trader.browser.request('GET', '/api/workspace')).json<WorkspaceView>();
     expect(stopped.market.demoMarket).toMatchObject({ enabled: false, status: 'STOPPED' });
+  });
+
+  it('previews exact simulator funding by level and refreshes inventory after an audited grant', async () => {
+    const trader = await context.trader('inventory_buyer');
+    await context.admin.request('POST', '/api/admin/simulator/start', {
+      commandId: randomUUID(),
+      sessionId: context.sessionId,
+      reason: 'Prepare inventory preview',
+    });
+    const initial = (await context.admin.request('GET', '/api/workspace')).json<WorkspaceView>();
+    const simulator = initial.admin!.overview.demoMarket!;
+    expect(simulator.inventory.maker.balances['BTC-SIM']).toEqual({
+      available: '1.0000',
+      reserved: '0.0000',
+      total: '1.0000',
+    });
+    expect(simulator.inventory.maker.orders).toEqual([
+      {
+        side: 'BUY',
+        price: '49970.00',
+        quantity: '0.0200',
+        asset: 'USD-SIM',
+        required: '1000.399400000',
+        shortfall: '0.000000000',
+        affordable: true,
+      },
+      {
+        side: 'BUY',
+        price: '49990.00',
+        quantity: '0.0200',
+        asset: 'USD-SIM',
+        required: '1000.799800000',
+        shortfall: '0.000000000',
+        affordable: true,
+      },
+      {
+        side: 'SELL',
+        price: '50010.00',
+        quantity: '0.0200',
+        asset: 'BTC-SIM',
+        required: '0.0200',
+        shortfall: '0.0000',
+        affordable: true,
+      },
+      {
+        side: 'SELL',
+        price: '50030.00',
+        quantity: '0.0200',
+        asset: 'BTC-SIM',
+        required: '0.0200',
+        shortfall: '0.0000',
+        affordable: true,
+      },
+    ]);
+    expect(simulator.inventory.taker.orders[0]).toMatchObject({
+      side: 'BUY',
+      quantity: '0.0010',
+      required: '50.060010000',
+      affordable: true,
+    });
+    await context.marketState('resume');
+    await context.exchange.placeLimit({
+      ...command(context.sessionId, 'SELL', '0.98'),
+      accountId: simulator.makerAccountId,
+    });
+    const reserved = (await context.admin.request('GET', '/api/workspace')).json<WorkspaceView>();
+    expect(reserved.admin!.overview.demoMarket!.inventory.maker.balances['BTC-SIM']).toEqual({
+      available: '0.0200',
+      reserved: '0.9800',
+      total: '1.0000',
+    });
+    // The next cycle releases its own reservations, so already-reserved inventory is reusable.
+    expect(
+      reserved.admin!.overview.demoMarket!.inventory.maker.orders.every(
+        (order) => order.affordable,
+      ),
+    ).toBe(true);
+    await trader.browser.request('POST', '/api/orders', command(context.sessionId, 'BUY', '0.98'));
+    const depleted = (await context.admin.request('GET', '/api/workspace')).json<WorkspaceView>();
+    expect(depleted.admin!.overview.demoMarket!.inventory.maker.orders.slice(2)).toMatchObject([
+      { affordable: true, shortfall: '0.0000' },
+      { affordable: false, shortfall: '0.0200' },
+    ]);
+    await context.marketState('pause');
+    const grant = await context.admin.request('POST', '/api/admin/grants', {
+      commandId: randomUUID(),
+      sessionId: context.sessionId,
+      accountId: simulator.makerAccountId,
+      asset: 'BTC-SIM',
+      amount: '0.04',
+      reason: 'Restore both maker sell levels',
+    });
+    expect(grant.json()).toMatchObject({ status: 'ACCEPTED' });
+    const funded = (await context.admin.request('GET', '/api/workspace')).json<WorkspaceView>();
+    expect(funded.admin!.overview.demoMarket!.inventory.maker.balances['BTC-SIM'].total).toBe(
+      '0.0600',
+    );
+    expect(
+      funded.admin!.overview.demoMarket!.inventory.maker.orders.every((order) => order.affordable),
+    ).toBe(true);
+    expect(funded.market.demoMarket).not.toHaveProperty('inventory');
   });
 
   it('calculates exact order totals and whole candles beyond the displayed fill window', async () => {

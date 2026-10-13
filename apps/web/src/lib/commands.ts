@@ -11,7 +11,7 @@ export interface PendingCommand {
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem' | 'removeItem'>;
 type Request = <T>(path: string, body?: Record<string, unknown>) => Promise<T>;
 const COMMAND_PATH =
-  /^\/api\/(?:orders(?:\/[0-9a-f-]{36}\/cancel)?|admin\/(?:market\/(?:pause|resume)|grants|reconcile|invitations(?:\/[0-9a-f-]{36}\/revoke)?|traders\/[0-9a-f-]{36}\/(?:suspend|reinstate|recovery)|orders\/[0-9a-f-]{36}\/cancel))$/;
+  /^\/api\/(?:orders(?:\/[0-9a-f-]{36}\/cancel)?|admin\/(?:market\/(?:pause|resume)|simulator\/(?:start|stop)|grants|reconcile|invitations(?:\/[0-9a-f-]{36}\/revoke)?|traders\/[0-9a-f-]{36}\/(?:suspend|reinstate|recovery)|orders\/[0-9a-f-]{36}\/cancel))$/;
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** Only non-secret command intentions may enter browser persistence. */

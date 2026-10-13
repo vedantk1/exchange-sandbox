@@ -1,10 +1,18 @@
 import { useState } from 'react';
 import type { AccountView, WorkspaceOrderView } from '@sandbox/contracts';
 import { amount, date, label } from './format';
-import type { AdminAction, Trader } from './types';
+import type { AdminAction, GrantTarget, Trader } from './types';
 
 export function Status({ value }: { value: string }) {
-  const tone = ['ACTIVE', 'ACCEPTED', 'TRADING', 'FILLED', 'REDEEMED', 'RUNNING'].includes(value)
+  const tone = [
+    'ACTIVE',
+    'ACCEPTED',
+    'TRADING',
+    'FILLED',
+    'REDEEMED',
+    'RUNNING',
+    'FUNDED',
+  ].includes(value)
     ? 'positive'
     : ['SUSPENDED', 'REJECTED', 'REVOKED', 'FAULT', 'FAULTED', 'ERROR'].includes(value)
       ? 'negative'
@@ -26,6 +34,7 @@ export function AccountInspector({
   account,
   trader,
   systemName,
+  simulatorAccount,
   loading,
   error,
   locked,
@@ -37,6 +46,7 @@ export function AccountInspector({
   account: AccountView | null;
   trader: Trader | undefined;
   systemName: string | undefined;
+  simulatorAccount: GrantTarget | undefined;
   loading: boolean;
   error: string | null;
   locked: boolean;
@@ -92,11 +102,13 @@ export function AccountInspector({
           required.
         </p>
       )}
-      {trader && (
+      {(trader || simulatorAccount) && (
         <div className="admin-account-actions">
           <button
             className="button ghost"
-            disabled={locked || !canGrant || trader.status !== 'ACTIVE' || !account || loading}
+            disabled={
+              locked || !canGrant || (trader && trader.status !== 'ACTIVE') || !account || loading
+            }
             title={!canGrant ? 'Grants require a paused, healthy market.' : undefined}
             onClick={() =>
               onAction({
@@ -105,56 +117,60 @@ export function AccountInspector({
                   'Issue a positive grant through the accounting journal. Existing reservations and prior records remain unchanged.',
                 path: '/api/admin/grants',
                 target: name,
-                grant: trader,
+                grant: trader ? { accountId: trader.accountId, label: name } : simulatorAccount!,
               })
             }
           >
             Grant funds
           </button>
-          <button
-            className="button ghost"
-            disabled={locked || trader.status !== 'ACTIVE'}
-            onClick={() =>
-              onAction({
-                title: 'Create recovery link',
-                description:
-                  'Create a single-use link valid for one hour. Earlier unused recovery links become invalid. Using the link changes the password and revokes all existing sessions.',
-                path: `/api/admin/traders/${trader.accountId}/recovery`,
-                target: name,
-                secret: 'recover',
-              })
-            }
-          >
-            Recovery link
-          </button>
-          <button
-            className={`button ${trader.status === 'ACTIVE' ? 'danger' : 'ghost'}`}
-            disabled={
-              locked || (trader.status !== 'ACTIVE' && (trader.pendingCancellation || fault))
-            }
-            onClick={() =>
-              onAction(
-                trader.status === 'ACTIVE'
-                  ? {
-                      title: 'Suspend participant',
-                      description:
-                        'Immediately revoke access and all login sessions, then cancel unfilled order quantities. Completed fills remain valid. During an accounting fault, cancellations remain visibly pending.',
-                      path: `/api/admin/traders/${trader.accountId}/suspend`,
-                      target: name,
-                      danger: true,
-                    }
-                  : {
-                      title: 'Reinstate participant',
-                      description:
-                        'Allow the participant to sign in and trade again. Canceled orders are not recreated and starting funds are not repeated.',
-                      path: `/api/admin/traders/${trader.accountId}/reinstate`,
-                      target: name,
-                    },
-              )
-            }
-          >
-            {trader.status === 'ACTIVE' ? 'Suspend access' : 'Reinstate'}
-          </button>
+          {trader && (
+            <>
+              <button
+                className="button ghost"
+                disabled={locked || trader.status !== 'ACTIVE'}
+                onClick={() =>
+                  onAction({
+                    title: 'Create recovery link',
+                    description:
+                      'Create a single-use link valid for one hour. Earlier unused recovery links become invalid. Using the link changes the password and revokes all existing sessions.',
+                    path: `/api/admin/traders/${trader.accountId}/recovery`,
+                    target: name,
+                    secret: 'recover',
+                  })
+                }
+              >
+                Recovery link
+              </button>
+              <button
+                className={`button ${trader.status === 'ACTIVE' ? 'danger' : 'ghost'}`}
+                disabled={
+                  locked || (trader.status !== 'ACTIVE' && (trader.pendingCancellation || fault))
+                }
+                onClick={() =>
+                  onAction(
+                    trader.status === 'ACTIVE'
+                      ? {
+                          title: 'Suspend participant',
+                          description:
+                            'Immediately revoke access and all login sessions, then cancel unfilled order quantities. Completed fills remain valid. During an accounting fault, cancellations remain visibly pending.',
+                          path: `/api/admin/traders/${trader.accountId}/suspend`,
+                          target: name,
+                          danger: true,
+                        }
+                      : {
+                          title: 'Reinstate participant',
+                          description:
+                            'Allow the participant to sign in and trade again. Canceled orders are not recreated and starting funds are not repeated.',
+                          path: `/api/admin/traders/${trader.accountId}/reinstate`,
+                          target: name,
+                        },
+                  )
+                }
+              >
+                {trader.status === 'ACTIVE' ? 'Suspend access' : 'Reinstate'}
+              </button>
+            </>
+          )}
         </div>
       )}
       {loading && (

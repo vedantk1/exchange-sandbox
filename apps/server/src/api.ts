@@ -523,6 +523,22 @@ export async function buildApi(options: ApiOptions) {
     async (request) => admin.resume(token(request), request.body),
   );
   app.post(
+    '/api/admin/simulator/start',
+    {
+      preHandler: protect('ADMIN'),
+      schema: { security, body: S.AdminCommand, response: { 200: S.AdminResult, ...errors } },
+    },
+    async (request) => admin.startSimulator(token(request), request.body),
+  );
+  app.post(
+    '/api/admin/simulator/stop',
+    {
+      preHandler: protect('ADMIN'),
+      schema: { security, body: S.AdminCommand, response: { 200: S.AdminResult, ...errors } },
+    },
+    async (request) => admin.stopSimulator(token(request), request.body),
+  );
+  app.post(
     '/api/admin/orders/:id/cancel',
     {
       preHandler: protect('ADMIN'),

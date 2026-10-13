@@ -393,6 +393,7 @@ export class Exchange {
     hash: string,
     execute: (tx: Transaction<Database>, control: Control, sequence: string) => Promise<Outcome>,
     accessToken?: string,
+    simulatorGeneration?: string,
   ): Promise<CommandResult> {
     let replay = false;
     const result = await this.financialTransaction<CommandResult>(
@@ -415,10 +416,29 @@ export class Exchange {
         if (account?.kind !== 'TRADER')
           throw new DomainError('INVALID_ACCOUNT', 'A known trader is required.');
         const sequence = await this.sequence(tx, control);
+        // Fence queued simulator work under the same lock as stop/start and matching.
+        // Replaying a prior receipt above is safe: it cannot add new financial effects.
+        const simulator =
+          simulatorGeneration === undefined
+            ? undefined
+            : await tx
+                .selectFrom('demo_market')
+                .select(['enabled', 'generation', 'maker_account_id', 'taker_account_id'])
+                .where('session_id', '=', identity.sessionId)
+                .executeTakeFirst();
+        const staleSimulator =
+          simulatorGeneration !== undefined &&
+          (!simulator?.enabled ||
+            simulator.generation !== simulatorGeneration ||
+            ![simulator.maker_account_id, simulator.taker_account_id].includes(identity.accountId));
         const outcome =
           control.active_session_id !== identity.sessionId
             ? rejection('STALE_SESSION')
-            : await execute(tx, control, sequence);
+            : staleSimulator
+              ? rejection('STALE_SIMULATOR')
+              : simulatorGeneration !== undefined && control.market_state !== 'TRADING'
+                ? rejection('MARKET_PAUSED')
+                : await execute(tx, control, sequence);
         const result: CommandResult = {
           commandId: identity.commandId,
           sessionId: identity.sessionId,
@@ -450,7 +470,11 @@ export class Exchange {
     return result;
   }
 
-  async placeLimit(input: LimitCommand, accessToken?: string): Promise<CommandResult> {
+  async placeLimit(
+    input: LimitCommand,
+    accessToken?: string,
+    simulatorGeneration?: string,
+  ): Promise<CommandResult> {
     input = { ...input };
     uuid(input.accountId);
     uuid(input.commandId);
@@ -631,10 +655,15 @@ export class Exchange {
         return { status: 'ACCEPTED', order: orderView(order), fills };
       },
       accessToken,
+      simulatorGeneration,
     );
   }
 
-  async cancel(input: CancelCommand, accessToken?: string): Promise<CommandResult> {
+  async cancel(
+    input: CancelCommand,
+    accessToken?: string,
+    simulatorGeneration?: string,
+  ): Promise<CommandResult> {
     input = { ...input };
     uuid(input.accountId);
     uuid(input.commandId);
@@ -685,6 +714,7 @@ export class Exchange {
         return { status: 'ACCEPTED', order: orderView(updated), fills: [] };
       },
       accessToken,
+      simulatorGeneration,
     );
   }
 

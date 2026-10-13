@@ -300,6 +300,20 @@ export const DemoMarket = Type.Object({
   status: Type.String(),
   updatedAt: Type.String(),
 });
+export const SimulatorInventory = Type.Object({
+  balances: Type.Object({ 'BTC-SIM': Balance, 'USD-SIM': Balance }),
+  orders: Type.Array(
+    Type.Object({
+      side: Type.Union([Type.Literal('BUY'), Type.Literal('SELL')]),
+      price: Type.String(),
+      quantity: Type.String(),
+      asset: Type.Union([Type.Literal('BTC-SIM'), Type.Literal('USD-SIM')]),
+      required: Type.String(),
+      shortfall: Type.String(),
+      affordable: Type.Boolean(),
+    }),
+  ),
+});
 export const WorkspaceOverview = Type.Object({
   feeAccountId: Type.Union([Id, Type.Null()]),
   issuanceAccountId: Type.Union([Id, Type.Null()]),
@@ -311,6 +325,8 @@ export const WorkspaceOverview = Type.Object({
       ...DemoMarket.properties,
       makerAccountId: Id,
       takerAccountId: Id,
+      referencePrice: Type.String(),
+      inventory: Type.Object({ maker: SimulatorInventory, taker: SimulatorInventory }),
     }),
   ),
   counts: Type.Object({

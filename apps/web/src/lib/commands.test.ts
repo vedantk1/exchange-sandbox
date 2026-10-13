@@ -124,6 +124,35 @@ describe('durable browser command intentions', () => {
     expect(storage.writes).toHaveLength(1);
   });
 
+  it.each(['start', 'stop'] as const)(
+    'restores a simulator %s after a lost response and retries its original audited intention',
+    async (action) => {
+      const storage = memory();
+      const path = `/api/admin/simulator/${action}`;
+      const body = { reason: `Operator chose to ${action} synthetic activity` };
+      const offline = requester(() => {
+        throw new TypeError('Connection lost');
+      });
+      const first = new CommandRunner(actorId, storage, offline.request, vi.fn());
+      expect(await first.submit(path, body, `${action} simulator`, sessionId)).toBeNull();
+      const original = pending(storage);
+      expect(original).toMatchObject({ path, body: { ...body, sessionId } });
+      const online = requester((_path, retryBody) => (retryBody ? accepted(retryBody) : null));
+      const restored = new CommandRunner(actorId, storage, online.request, vi.fn());
+      expect(restored.storageBlocked).toBe(false);
+      expect(restored.pending).toEqual(original);
+      expect(await restored.resolve()).toBeNull();
+      expect(await restored.retry()).toEqual(accepted(original.body));
+      expect(online.calls).toEqual([
+        { path: `/api/receipts/${original.body.commandId}` },
+        { path, body: original.body },
+      ]);
+      expect(storage.writes).toHaveLength(1);
+      expect(storage.entries.size).toBe(0);
+      expect(restored.pending).toBeNull();
+    },
+  );
+
   it.each([400, 401, 403, 429])(
     'clears a first-attempt definite HTTP %i rejection without retrying or reading a receipt',
     async (status) => {

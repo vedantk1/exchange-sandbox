@@ -1,6 +1,6 @@
 # System architecture and stack
 
-Status: accepted architecture and TypeScript stack, based on the accepted [MVP](MVP.md). Milestones 1–3 implement the trading core, PostgreSQL persistence/recovery, invitation-only authentication, trader/admin HTTP routes and screens, audited controls, and live delivery. Bot operation, session rollover, protected market orders, exports, deployment, and performance acceptance remain future work. Exact dependencies are pinned in the manifests and lockfile. See [development and validation](DEVELOPMENT.md) and the [HTTP API](API.md) for the implemented boundary.
+Status: accepted architecture and TypeScript stack, based on the accepted [MVP](MVP.md). Milestones 1–3 implement the trading core, PostgreSQL persistence/recovery, invitation-only authentication, trader/admin HTTP routes and screens, audited controls, and live delivery. The two-account simulator now has administrator lifecycle/funding controls and browser regression coverage. Session rollover, protected market orders, exports, deployment, and performance acceptance remain future work. Exact dependencies are pinned in the manifests and lockfile. See [development and validation](DEVELOPMENT.md) and the [HTTP API](API.md) for the implemented boundary.
 
 Use a modular TypeScript application, a React interface, and PostgreSQL as the authoritative store. The browser uses ordinary HTTP commands and queries and server-sent events for live updates. The implemented core uses exact integer arithmetic and one serialized database transaction for each exchange command. The initial deployment has one application process and one database.
 
@@ -74,7 +74,7 @@ flowchart LR
     API <-->|Transactions and consistent reads| DB
 ```
 
-The application process contains HTTP handling, authentication, command orchestration, read queries, and event delivery. An opt-in development simulator also runs in this process, submitting ordinary commands for two dedicated trading accounts. The administrator-operated liquidity bot remains a planned module. In a future packaged self-hosted release the application will also serve the built frontend from the same origin. Development runs Vite and the backend in development/watch mode, with Vite proxying API and SSE requests.
+The application process contains HTTP handling, authentication, command orchestration, read queries, and event delivery. An administrator-managed simulator runs in this process, submitting ordinary commands for two dedicated trading accounts. In a future packaged self-hosted release the application will also serve the built frontend from the same origin. Development runs Vite and the backend in development/watch mode, with Vite proxying API and SSE requests.
 
 There is one supported application instance. A database-held singleton guard prevents accidentally starting a second active bot scheduler/application writer. Acquiring ownership also advances a writer epoch under the installation control-row lock. Every exchange or access-changing command verifies its instance's epoch under that lock; a previous instance cannot continue writing through pooled connections after ownership has changed. Loss of the guard makes the instance unready and stops command/bot dispatch. Ownership acquisition and recovery are ordered after any transaction already holding the control lock. An in-process mutex is not the persistence guarantee. Active-active deployment and automatic failover are excluded.
 
@@ -89,7 +89,7 @@ There is one supported application instance. A database-held singleton guard pre
 | Market queries              | Book snapshots, trades, candles, order explanations, history                  | Reads committed data; no independent trading authority                            |
 | Operations                  | Pause/resume, restrictions, grants, bot control, rollover, reconciliation     | Uses the command boundary, including administrator actions                        |
 | Bot                         | Fixed quoting decisions and scheduled requests                                | Submits through the same application service with its own participant identity    |
-| Development simulator       | Bounded fictional prices, two automated participants, durable cycle progress  | Uses ordinary trading commands; never writes fills, candles, or balances directly |
+| Market simulator            | Bounded fictional prices, two automated participants, durable cycle progress  | Uses ordinary trading commands; never writes fills, candles, or balances directly |
 | Delivery and exports        | Authorized SSE notifications and consistent CSV exports                       | Cannot fabricate an order outcome or override database state                      |
 
 Repository boundaries, including planned components:
@@ -225,17 +225,19 @@ A crash between those transactions leaves a visible recoverable gate. Recovery c
 
 Each command carries its expected session and, where relevant, a control/bot generation. Stale queued bot work and browser forms cannot affect the new session. The bot persists enough intent and outstanding order identity to resume from current state without reissuing starting funds or duplicating quotes. Bot replacement orders still obtain fresh priority as required by the MVP.
 
-## Development market simulator
+## Administrator-managed market simulator
 
-The implemented simulator is a local demonstration adapter in `apps/server/src/demo-market/`, enabled explicitly with `pnpm dev:market`. The API requires a development environment and loopback listener before enabling it. It runs under the existing singleton writer and transaction fencing; there is no second matching process, message broker, or privileged trading endpoint. The full administrator-operated quoting bot and session rollover described above remain future work.
+The simulator in `apps/server/src/demo-market/` runs under the existing singleton writer. `AdminService` owns start/stop and funding; the scheduler only executes durable enabled intent. The two-account design is the accepted MVP automation feature. Session rollover remains future work.
 
-Migration `003_demo_market` records one simulator state per exchange session: the two account identities, enable/status fields, fictional reference price, cycle number, planned commands, and next-command cursor. Initial account creation and ordinary starting allocations occur together under the financial transaction boundary, once per session. The accounts have no login users. Shared workspace status discloses synthetic activity without their identities; the administrator workspace includes both account IDs for inspection.
+Migration `003_demo_market` stores the account identities, intent/status, reference price, cycle, command plan, and cursor. Migration `004_simulator_controls` adds a generation and pending-cleanup status, and permits grants to registered simulator accounts through the ordinary issuance journal. It preserves existing accounts, allocations, command plans, and history. Recipient validation at both the application and database boundaries rejects arbitrary service accounts; reconciliation includes simulator grants rather than relying on a human-user join.
 
-Before dispatch, a cycle durably plans cancellations, replacement quotes, and one small crossing order with fixed command IDs. Each command runs through `Exchange.placeLimit` or `Exchange.cancel`; its result commits before the simulator advances its cursor. If the process dies between those commits, restart repeats the original identity and the ordinary receipt resolves its outcome. The plan survives an uncertain response. New quotes receive new price/time priority, and there is no inventory refill on retry or restart.
+First start creates both accounts and their initial allocations atomically with the administrator receipt and audit record. Repeated starts retain existing funds and active plans. Shared workspace metadata omits identities; administrator snapshots include balances and per-level affordability. Worker orders and funding previews share one exact-integer quote-intent builder. Preview budgets release prior reservations, include buy fees, and assume no proceeds from future trades; they are advisory, not guarantees.
 
-The scheduler waits four seconds after a cycle settles and does not overlap cycles. Prices follow a bounded integer-cent walk; matching and accounting retain the core's exact integer rules. The separate maker and taker may trade with each other or human participants. This is explicitly synthetic demo activity, not a model of a real exchange or a profitability claim. Candles still derive solely from persisted executions at their actual times; no historical rows or synthetic candle data are inserted.
+Before dispatch, a cycle durably plans cancellations, replacement quotes, and one small crossing order with fixed command IDs. Each command runs through `Exchange.placeLimit` or `Exchange.cancel`. Its receipt commits before the worker advances its cursor; interruption between those commits replays the original identity safely. Existing pre-migration plans remain replayable because command fingerprints are unchanged. All cursor/status writes check ownership of the same enabled generation under the installation lock.
 
-Market pause and fault checks gate dispatch, while ordinary command admission remains authoritative for races. Pauses preserve orders. Normal shutdown disables intent before canceling the two accounts' remaining orders, preserving all executions. Disabled startup also cleans their remaining orders after an interrupted process. A fault that prevents cancellation leaves Error visible and records intact. Administrator resume completes disabled simulator cleanup under the recovery transaction, then reconciles before reopening trading. The operator-facing lifecycle and inventory details are in the [development guide](DEVELOPMENT.md#development-demo-market).
+Stop increments the generation and disables intent under the same lock used by matching. Every new scheduler command checks that generation under the lock. Queued work from an older run cannot place or cancel orders after a confirmed stop, including after a later start. When healthy, stop cancels both accounts' remaining orders and releases reservations in the same transaction. During a fault, disabled intent commits while financial cleanup remains `STOPPING`. A cancellation invariant failure rolls back its savepoint, latches a pause, and preserves that disabled intent. Resume reconciles, finishes pending cleanup, and reconciles again before reopening trading.
+
+The scheduler waits four seconds after a cycle settles and never overlaps cycles. Prices follow a bounded integer-cent walk. Maker/taker trades use ordinary matching and fees; candles derive solely from persisted executions at their real times. A pause preserves enabled intent and orders. Process shutdown drains dispatch without changing the administrator's intention; restart reconciles before processing a retained plan. A stopped simulator stays stopped. State timestamps report persisted changes, not worker liveness.
 
 ## Authentication and recovery
 
@@ -282,10 +284,10 @@ Implementation order:
 
 1. Exact domain values, matching/accounting rules, and technical numeric bounds — implemented.
 2. PostgreSQL schema and transactional vertical slice proving the MVP partial-fill/cancel example, duplicate-command recovery, and invariant checks — implemented; see the development guide for test evidence and limitations.
-3. Invitations/authentication, HTTP contracts, administrator gates, grants, and access-recovery cases — implemented. Bot control and session rollover remain separate increments; their accepted behavior above is unchanged.
+3. Invitations/authentication, HTTP contracts, administrator gates, grants, and access-recovery cases — implemented. Session rollover remains a separate increment.
 4. Trader/admin UI, limit-order review, live synchronization, and explainable bounded history — implemented. Protected market-order previews remain a separate increment.
-5. Opt-in development market simulator and sparse-chart explanations — implemented. This does not complete the full administrator-operated liquidity-bot acceptance flow.
-6. Protected market orders, bot/lifecycle features, exports, packaged self-host setup, restore drill, full browser acceptance, and measured workload validation.
+5. Administrator-managed two-account simulator, inventory/funding, sparse-chart explanations, and browser CI regression coverage — implemented.
+6. Protected market orders, session rollover, exports, packaged self-host setup, restore drill, full-release browser acceptance, and measured workload validation.
 
 These increments are implementation order, not separate weakened definitions of done. Accounting and recovery are prerequisites for the polished trading experience.
 

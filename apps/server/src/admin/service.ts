@@ -233,6 +233,149 @@ export class AdminService {
     );
   }
 
+  async startSimulator(token: string, input: AdminCommand): Promise<AdminResult> {
+    return this.command(token, input, 'SIMULATOR_STARTED', null, {}, 'financial', async (tx) => {
+      let state = await tx
+        .selectFrom('demo_market')
+        .selectAll()
+        .where('session_id', '=', input.sessionId)
+        .executeTakeFirst();
+      if (state?.status === 'STOPPING') return rejected('PENDING_CANCELLATION');
+      if (!state) {
+        const maker = randomUUID();
+        const taker = randomUUID();
+        for (const [id, label] of [
+          [maker, 'Demo market maker'],
+          [taker, 'Demo market taker'],
+        ] as const) {
+          await tx.insertInto('accounts').values({ id, kind: 'TRADER', label }).execute();
+          await allocateTrader(tx, input.sessionId, id, input.commandId);
+        }
+        state = await tx
+          .insertInto('demo_market')
+          .values({
+            session_id: input.sessionId,
+            maker_account_id: maker,
+            taker_account_id: taker,
+            enabled: true,
+            status: 'RUNNING',
+            generation: '1',
+            plan: '[]',
+          })
+          .returningAll()
+          .executeTakeFirstOrThrow();
+      } else if (!state.enabled) {
+        state = await tx
+          .updateTable('demo_market')
+          .set({
+            enabled: true,
+            status: 'RUNNING',
+            generation: (BigInt(state.generation) + 1n).toString(),
+            plan: '[]',
+            next_command: 0,
+            updated_at: new Date(),
+          })
+          .where('session_id', '=', input.sessionId)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+      }
+      return {
+        status: 'ACCEPTED',
+        enabled: true,
+        simulatorStatus: state.status,
+        makerAccountId: state.maker_account_id,
+        takerAccountId: state.taker_account_id,
+        generation: state.generation,
+      };
+    });
+  }
+
+  async stopSimulator(token: string, input: AdminCommand): Promise<AdminResult> {
+    return this.command(
+      token,
+      input,
+      'SIMULATOR_STOPPED',
+      null,
+      {},
+      'recovery',
+      async (tx, control) => {
+        const state = await tx
+          .selectFrom('demo_market')
+          .selectAll()
+          .where('session_id', '=', input.sessionId)
+          .executeTakeFirst();
+        if (!state || (!state.enabled && state.status === 'STOPPED')) {
+          return {
+            status: 'ACCEPTED',
+            enabled: false,
+            simulatorStatus: 'STOPPED',
+            pendingCancellation: false,
+            canceledOrders: [],
+          };
+        }
+        // Persist disabled intent before any financial cleanup. The generation
+        // fences work already dispatched by the scheduler, even after a restart.
+        await tx
+          .updateTable('demo_market')
+          .set({
+            enabled: false,
+            status: 'STOPPING',
+            generation: (BigInt(state.generation) + 1n).toString(),
+            plan: '[]',
+            next_command: 0,
+            updated_at: new Date(),
+          })
+          .where('session_id', '=', input.sessionId)
+          .execute();
+        let pendingCancellation = true;
+        let canceledOrders: OrderView[] = [];
+        if (!control.fault) {
+          await sql`SAVEPOINT simulator_cancellations`.execute(tx);
+          try {
+            for (const accountId of [state.maker_account_id, state.taker_account_id]) {
+              canceledOrders.push(
+                ...(await this.cancelAccountOrders(
+                  tx,
+                  input.sessionId,
+                  accountId,
+                  input.commandId,
+                  'DEMO_MARKET_STOPPED',
+                )),
+              );
+            }
+            await sql`SET CONSTRAINTS ALL IMMEDIATE`.execute(tx);
+            await tx
+              .updateTable('demo_market')
+              .set({ status: 'STOPPED' })
+              .where('session_id', '=', input.sessionId)
+              .execute();
+            pendingCancellation = false;
+          } catch (error) {
+            if (!(error instanceof RecoveryError) && (error as { code?: string })?.code !== '23514')
+              throw error;
+            await sql`ROLLBACK TO SAVEPOINT simulator_cancellations`.execute(tx);
+            await tx
+              .updateTable('exchange_control')
+              .set({
+                fault: 'Simulator cancellation requires reconciliation.',
+                market_state: 'PAUSED',
+              })
+              .where('id', '=', 1)
+              .execute();
+            canceledOrders = [];
+          }
+        }
+        return {
+          status: 'ACCEPTED',
+          enabled: false,
+          simulatorStatus: pendingCancellation ? 'STOPPING' : 'STOPPED',
+          pendingCancellation,
+          canceledOrders,
+        };
+      },
+    );
+  }
+
   async grant(
     token: string,
     input: AdminCommand & {
@@ -262,12 +405,28 @@ export class AdminService {
       async (tx, control, actorId) => {
         if (control.market_state !== 'PAUSED') return rejected('MARKET_MUST_BE_PAUSED');
         const target = await tx
-          .selectFrom('users')
-          .select(['role', 'status'])
-          .where('account_id', '=', input.accountId)
+          .selectFrom('accounts')
+          .leftJoin('users', 'users.account_id', 'accounts.id')
+          .select(['accounts.kind', 'users.role', 'users.status'])
+          .where('accounts.id', '=', input.accountId)
           .executeTakeFirst();
-        if (!target || target.role !== 'TRADER') return rejected('INVALID_TRADER');
-        if (target.status !== 'ACTIVE') return rejected('ACCOUNT_SUSPENDED');
+        if (target?.kind !== 'TRADER') return rejected('INVALID_TRADER');
+        if (target.role === 'TRADER') {
+          if (target.status !== 'ACTIVE') return rejected('ACCOUNT_SUSPENDED');
+        } else {
+          const simulator = await tx
+            .selectFrom('demo_market')
+            .select('session_id')
+            .where('session_id', '=', input.sessionId)
+            .where((eb) =>
+              eb.or([
+                eb('maker_account_id', '=', input.accountId),
+                eb('taker_account_id', '=', input.accountId),
+              ]),
+            )
+            .executeTakeFirst();
+          if (!simulator) return rejected('INVALID_TRADER');
+        }
         const issuance = await tx
           .selectFrom('accounts')
           .select('id')

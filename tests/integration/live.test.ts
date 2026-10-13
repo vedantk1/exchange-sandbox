@@ -132,6 +132,44 @@ describe('authenticated live invalidation over real HTTP sockets', () => {
     expect((await operator.next('invalidate'))?.event).toBe('invalidate');
   });
 
+  it('delivers simulator start and stop to traders without exposing service account identities', async () => {
+    const trader = await context.trader('trader');
+    const live = await connect(trader.browser, await cursor(trader.browser));
+    expect((await live.next())?.event).toBe('ready');
+    let lastCursor = '';
+    let maker = '';
+    let taker = '';
+    for (const action of ['start', 'stop']) {
+      const result = await context.admin.request('POST', `/api/admin/simulator/${action}`, {
+        commandId: randomUUID(),
+        sessionId: context.sessionId,
+        reason: 'Exercise live simulator lifecycle updates',
+      });
+      expect(result.statusCode).toBe(200);
+      const body = result.json<{
+        status: string;
+        data: { makerAccountId?: string; takerAccountId?: string };
+      }>();
+      expect(body.status).toBe('ACCEPTED');
+      if (action === 'start') {
+        maker = body.data.makerAccountId!;
+        taker = body.data.takerAccountId!;
+      }
+      const update = (await live.next('invalidate'))!;
+      expect(update.data).toEqual({ sessionId: context.sessionId, cursor: update.id });
+      expect(JSON.stringify(update)).not.toContain(maker);
+      expect(JSON.stringify(update)).not.toContain(taker);
+      if (lastCursor) expect(BigInt(update.id!)).toBeGreaterThan(BigInt(lastCursor));
+      lastCursor = update.id!;
+      const workspace = (
+        await trader.browser.request('GET', '/api/workspace')
+      ).json<WorkspaceView>();
+      expect(workspace.market.demoMarket).toMatchObject({ enabled: action === 'start' });
+      expect(JSON.stringify(workspace)).not.toContain(maker);
+      expect(JSON.stringify(workspace)).not.toContain(taker);
+    }
+  });
+
   it('forces snapshot reset for unknown/ahead/session cursors and honors Last-Event-ID on reconnect', async () => {
     const trader = await context.trader('trader');
     const current = await cursor(trader.browser);

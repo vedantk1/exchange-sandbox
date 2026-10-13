@@ -2,12 +2,14 @@ import { sql, type Kysely } from 'kysely';
 import { INITIAL_SCHEMA } from './schema.js';
 import { IDENTITY_SCHEMA } from './identity-schema.js';
 import { DEMO_MARKET_SCHEMA } from './demo-market-schema.js';
+import { SIMULATOR_CONTROLS_SCHEMA } from './simulator-controls-schema.js';
 import type { Database } from './types.js';
 
 const migrations = [
   { name: '001_exchange_core', statement: INITIAL_SCHEMA },
   { name: '002_identity_and_controls', statement: IDENTITY_SCHEMA },
   { name: '003_demo_market', statement: DEMO_MARKET_SCHEMA },
+  { name: '004_simulator_controls', statement: SIMULATOR_CONTROLS_SCHEMA },
 ];
 
 /** Migrations and their metadata commit together, under a transaction-held lock. */

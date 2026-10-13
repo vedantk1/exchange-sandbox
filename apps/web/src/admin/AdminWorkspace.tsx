@@ -3,6 +3,7 @@ import type { AccountView } from '@sandbox/contracts';
 import type { CommandOutcome } from '../lib/api';
 import { AccountInspector, Empty, Status } from './AccountInspector';
 import { ActionDialog, SecretDialog } from './ActionDialog';
+import { SimulatorCard } from './SimulatorCard';
 import { date, label } from './format';
 import type { AdminAction, AdminWorkspaceProps } from './types';
 import './admin.css';
@@ -74,6 +75,26 @@ export function AdminWorkspace({
             : selectedId && !selected
               ? `Account ${selectedId.slice(0, 8)}`
               : undefined;
+  const selectedSimulator =
+    selectedId &&
+    (selectedId === demoMarket?.makerAccountId || selectedId === demoMarket?.takerAccountId)
+      ? { accountId: selectedId, label: systemName! }
+      : undefined;
+  const simulatorGrantInventory =
+    action?.grant?.accountId === demoMarket?.makerAccountId
+      ? demoMarket?.inventory.maker
+      : action?.grant?.accountId === demoMarket?.takerAccountId
+        ? demoMarket?.inventory.taker
+        : undefined;
+  const grantBalances =
+    simulatorGrantInventory?.balances ??
+    (selected &&
+    action?.grant?.accountId === selected.accountId &&
+    selected.status === 'ACTIVE' &&
+    !accountLoading &&
+    !accountError
+      ? (account?.balances ?? null)
+      : null);
   const locked = busy || !connected;
   const paused = overview.marketState === 'PAUSED';
   const faulted = Boolean(overview.fault);
@@ -121,6 +142,11 @@ export function AdminWorkspace({
         tone: 'danger',
         text: 'Reconciliation found an accounting fault. Financial actions remain blocked until the underlying issue is resolved.',
         details: Array.isArray(data.issues) ? data.issues.map(String) : [],
+      });
+    } else if (current.path === '/api/admin/simulator/stop' && data?.pendingCancellation === true) {
+      setNotice({
+        tone: 'warning',
+        text: 'New simulator orders are disabled. Existing order cancellations remain pending until accounting recovery succeeds.',
       });
     } else if (data?.pendingCancellation === true) {
       setNotice({
@@ -235,7 +261,8 @@ export function AdminWorkspace({
             <strong>Accounting recovery required</strong>
             <p>{overview.fault}</p>
             <p>
-              Reads and access revocation are available. Financial actions cannot bypass this fault.
+              Reads, access revocation, and stopping the simulator are available. Financial actions
+              cannot bypass this fault.
             </p>
           </div>
         </div>
@@ -353,47 +380,14 @@ export function AdminWorkspace({
               </ol>
             </section>
           </div>
-          <section className="admin-card" aria-labelledby="demo-market-heading">
-            <div className="admin-card-heading">
-              <div>
-                <p className="admin-eyebrow">Synthetic activity</p>
-                <h2 id="demo-market-heading">Demo market simulator</h2>
-              </div>
-              <Status value={demoMarket?.status ?? 'NOT_STARTED'} />
-            </div>
-            <p className="admin-body-copy">
-              Dedicated automated accounts place simulated orders in the shared book. Participants
-              can trade against them. Their executions build the chart; prices do not come from an
-              external market feed.
-            </p>
-            <p className="admin-body-copy">
-              Opt in locally with <code>pnpm dev:market</code>. Use <code>pnpm dev</code> for manual
-              trading. Accounts are created after trading resumes. Pausing the market also pauses
-              demo activity.
-            </p>
-            {demoMarket && (
-              <>
-                <div className="admin-operating-actions">
-                  <button
-                    className="button ghost"
-                    onClick={() => inspect(demoMarket.makerAccountId)}
-                  >
-                    Inspect demo maker
-                  </button>
-                  <button
-                    className="button ghost"
-                    onClick={() => inspect(demoMarket.takerAccountId)}
-                  >
-                    Inspect demo taker
-                  </button>
-                </div>
-                <p className="admin-history-note">
-                  Last simulator update {date(demoMarket.updatedAt)}. Automated accounts have no
-                  login and are excluded from participant counts.
-                </p>
-              </>
-            )}
-          </section>
+          <SimulatorCard
+            simulator={demoMarket}
+            paused={paused}
+            faulted={faulted}
+            locked={locked}
+            inspect={inspect}
+            onAction={setAction}
+          />
           <section className="admin-card">
             <div className="admin-card-heading">
               <div>
@@ -498,6 +492,7 @@ export function AdminWorkspace({
             account={account}
             trader={selected}
             systemName={systemName}
+            simulatorAccount={selectedSimulator}
             loading={accountLoading}
             error={accountError}
             locked={locked || Boolean(accountError)}
@@ -703,18 +698,16 @@ export function AdminWorkspace({
       {action && (
         <ActionDialog
           action={action}
-          account={selected && action.grant?.accountId === selected.accountId ? account : null}
+          balances={grantBalances}
           busy={busy}
           connected={connected}
           unavailableReason={
-            action.grant &&
-            (!paused ||
-              faulted ||
-              selected?.status !== 'ACTIVE' ||
-              accountLoading ||
-              Boolean(accountError))
-              ? 'Grant confirmation requires a current account view, an active participant, and a paused, healthy market.'
-              : null
+            action.grant && (!paused || faulted || !grantBalances)
+              ? 'Grant confirmation requires a current eligible account view and a paused, healthy market.'
+              : action.path === '/api/admin/simulator/start' &&
+                  (faulted || demoMarket?.status === 'STOPPING')
+                ? 'Starting requires healthy accounting and completion of pending simulator cancellations.'
+                : null
           }
           onClose={() => setAction(null)}
           onConfirm={confirm}

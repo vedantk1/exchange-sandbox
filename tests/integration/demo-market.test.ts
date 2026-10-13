@@ -16,7 +16,7 @@ interface SimulatorRow {
   next_command: number;
 }
 
-describe('durable development market simulator', () => {
+describe('durable administrator-managed market simulator', () => {
   let context: ApiFixture;
   let simulator: DemoMarket;
   let afterCommit: ((commandId: string) => Promise<void>) | undefined;
@@ -82,7 +82,17 @@ describe('durable development market simulator', () => {
     ).rows[0]?.result;
   }
 
+  async function lifecycle(action: 'start' | 'stop') {
+    const response = await context.admin.request('POST', `/api/admin/simulator/${action}`, {
+      sessionId: context.sessionId,
+      commandId: randomUUID(),
+      reason: `Test simulator ${action}`,
+    });
+    expect(response.json()).toMatchObject({ status: 'ACCEPTED' });
+  }
+
   async function resume() {
+    if (!(await state())) await lifecycle('start');
     expect((await context.marketState('resume')).json()).toMatchObject({ status: 'ACCEPTED' });
   }
 
@@ -169,7 +179,7 @@ describe('durable development market simulator', () => {
     expect((await counts()).fills).toBeGreaterThan(before.fills);
   });
 
-  it('discards unfinished placements on disabled restart and cancels only simulator orders', async () => {
+  it('discards unfinished placements on admin stop and stays stopped after restart', async () => {
     const trader = await context.trader('human_trader');
     await resume();
     const humanOrder = await context.exchange.placeLimit({
@@ -190,10 +200,15 @@ describe('durable development market simulator', () => {
     expect((await botOpenOrders()).length).toBeGreaterThan(0);
     await context.start();
     simulator = new DemoMarket(context.exchange);
-    await simulator.stop();
+    await lifecycle('stop');
     expect(await botOpenOrders()).toEqual([]);
     expect((await counts()).orders).toBe(before.orders);
     expect((await counts()).fills).toBe(before.fills);
+    expect(await state()).toMatchObject({ enabled: false, status: 'STOPPED', plan: [] });
+    await context.start();
+    simulator = new DemoMarket(context.exchange);
+    await simulator.tick();
+    expect((await counts()).orders).toBe(before.orders);
     expect(await state()).toMatchObject({ enabled: false, status: 'STOPPED', plan: [] });
     expect((await context.exchange.snapshot(trader.user.accountId)).orders).toContainEqual(
       humanOrder.order,
@@ -218,10 +233,10 @@ describe('durable development market simulator', () => {
     ).rejects.toBeInstanceOf(RecoveryError);
     const halted = await counts();
     await simulator.tick();
-    await simulator.stop();
+    await lifecycle('stop');
     expect(await counts()).toEqual(halted);
     expect(await botOpenOrders()).toEqual(open);
-    expect(await state()).toMatchObject({ enabled: false, status: 'ERROR' });
+    expect(await state()).toMatchObject({ enabled: false, status: 'STOPPING' });
     const resumed = (await context.marketState('resume')).json<{
       status: string;
       data: { canceledOrders: { id: string; cancelReason: string }[] };
@@ -285,7 +300,7 @@ describe('durable development market simulator', () => {
     expect(await context.exchange.reconcile()).toEqual({ ok: true, issues: [] });
   });
 
-  it('drains an in-flight dispatch before stopping and releases every remaining reservation', async () => {
+  it('drains an in-flight dispatch on shutdown while preserving durable running intent', async () => {
     await resume();
     let entered!: () => void;
     let release!: () => void;
@@ -305,13 +320,107 @@ describe('durable development market simulator', () => {
     let stopping: Promise<void> | undefined;
     try {
       await dispatched;
-      stopping = simulator.stop();
+      stopping = simulator.close();
     } finally {
       release();
       await Promise.all([tick, ...(stopping ? [stopping] : [])]);
     }
+    expect(await botOpenOrders()).toHaveLength(1);
+    expect(await state()).toMatchObject({ enabled: true, next_command: 1 });
+    const before = await counts();
+    await context.start();
+    simulator = new DemoMarket(context.exchange);
+    await simulator.tick();
+    expect((await counts()).allocations).toBe(before.allocations);
+    expect((await counts()).fills).toBeGreaterThan(before.fills);
+    expect(await context.exchange.reconcile()).toEqual({ ok: true, issues: [] });
+  });
+
+  it('freezes a queued simulator cancellation when pause wins the command lock', async () => {
+    await resume();
+    await simulator.tick();
+    const open = await botOpenOrders();
+    const before = await counts();
+    let entered!: () => void;
+    let release!: () => void;
+    const dispatched = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const proceed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const cancel = context.exchange.cancel.bind(context.exchange);
+    let once = true;
+    context.exchange.cancel = async (...args) => {
+      if (once) {
+        once = false;
+        entered();
+        await proceed;
+      }
+      return cancel(...args);
+    };
+    const tick = simulator.tick();
+    try {
+      await dispatched;
+      expect((await context.marketState('pause')).json()).toMatchObject({ status: 'ACCEPTED' });
+    } finally {
+      release();
+      await tick;
+    }
+    expect(await botOpenOrders()).toEqual(open);
+    expect(await counts()).toEqual(before);
+    expect(await state()).toMatchObject({ enabled: true, next_command: 0, plan: [] });
+    await resume();
+    await simulator.tick();
+    expect(await botOpenOrders()).toHaveLength(4);
+    expect((await counts()).fills).toBeGreaterThan(before.fills);
+    expect(await context.exchange.reconcile()).toEqual({ ok: true, issues: [] });
+  });
+
+  it('fences a queued placement after stop, including after a later start', async () => {
+    await resume();
+    let entered!: () => void;
+    let release!: () => void;
+    const dispatched = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const proceed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const place = context.exchange.placeLimit.bind(context.exchange);
+    let once = true;
+    context.exchange.placeLimit = async (...args) => {
+      if (once) {
+        once = false;
+        entered();
+        await proceed;
+      }
+      return place(...args);
+    };
+    const tick = simulator.tick();
+    try {
+      await dispatched;
+      await lifecycle('stop');
+      expect(await botOpenOrders()).toEqual([]);
+      await lifecycle('start');
+    } finally {
+      release();
+      await tick;
+    }
     expect(await botOpenOrders()).toEqual([]);
-    expect(await state()).toMatchObject({ enabled: false, status: 'STOPPED', plan: [] });
+    expect(await state()).toMatchObject({
+      enabled: true,
+      status: 'RUNNING',
+      next_command: 0,
+      plan: [],
+    });
+    const rejections = await context.sql.query(
+      "SELECT result->>'code' AS code FROM receipts WHERE result->>'code' = 'STALE_SIMULATOR'",
+    );
+    expect(rejections.rows).toEqual([{ code: 'STALE_SIMULATOR' }]);
+    await simulator.tick();
+    expect((await counts()).fills).toBeGreaterThan(0);
+    expect((await counts()).allocations).toBe(2);
     expect(await context.exchange.reconcile()).toEqual({ ok: true, issues: [] });
   });
 });

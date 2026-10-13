@@ -6,7 +6,7 @@ import type { AdminAction } from './types';
 
 export function ActionDialog({
   action,
-  account,
+  balances,
   busy,
   connected,
   unavailableReason,
@@ -14,7 +14,7 @@ export function ActionDialog({
   onConfirm,
 }: {
   action: AdminAction;
-  account: AccountView | null;
+  balances: AccountView['balances'] | null;
   busy: boolean;
   connected: boolean;
   unavailableReason: string | null;
@@ -29,7 +29,7 @@ export function ActionDialog({
   const validReason = reason.trim().length > 0 && !/[\u0000-\u001f\u007f]/.test(reason);
   const validAmount = !action.grant || validGrant(grantAmount, asset);
   const locked = busy || submitting;
-  const balance = account?.balances[asset];
+  const balance = balances?.[asset];
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -122,8 +122,8 @@ export function ActionDialog({
           <div className="admin-review" aria-label="Grant review">
             <dl>
               <div>
-                <dt>Participant</dt>
-                <dd>@{action.grant.handle}</dd>
+                <dt>Account</dt>
+                <dd>{action.grant.label}</dd>
               </div>
               <div>
                 <dt>Virtual funds to issue</dt>
@@ -162,7 +162,7 @@ export function ActionDialog({
               </div>
             </dl>
             <p>
-              Projected from the latest inspected balance. The server checks the paused market and
+              Projected from the latest account snapshot. The server checks the paused market and
               records the actual result when confirmed.
             </p>
           </div>

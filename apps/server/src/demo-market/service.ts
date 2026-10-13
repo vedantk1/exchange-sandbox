@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Database } from '@sandbox/database';
-import { formatPrice } from '@sandbox/domain';
+import { formatPrice, formatQuantity } from '@sandbox/domain';
 import type { Selectable, Transaction } from 'kysely';
-import { allocateTrader } from '../core-mutations.js';
+import { quoteIntents } from './inventory.js';
 import type { Control, Exchange } from '../exchange.js';
 import type { CancelCommand, LimitCommand } from '../types.js';
 
@@ -40,7 +40,7 @@ function nextPrice(state: State): bigint {
   return next < 4800000n ? 4800000n : next > 5200000n ? 5200000n : next;
 }
 
-/** One internal producer inside the fenced exchange process. No login or privileged HTTP route. */
+/** Internal scheduler. Administrator commands own durable intent; this worker only executes it. */
 export class DemoMarket {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private pending: Promise<void> | undefined;
@@ -58,7 +58,7 @@ export class DemoMarket {
         await this.tick();
       } catch {
         // The durable plan retains the original command identity after an uncertain outcome.
-        if (!this.stopping) await this.reportError(true);
+        // runCycle records errors only while it still owns this simulator generation.
       }
       if (!this.stopping) this.timer = setTimeout(() => void run(), 4_000);
     };
@@ -73,89 +73,28 @@ export class DemoMarket {
     return this.pending;
   }
 
-  private async state(): Promise<State | undefined> {
-    return this.exchange.readTransaction(async (tx) => {
-      const control = await tx
-        .selectFrom('exchange_control')
-        .select('active_session_id')
-        .where('id', '=', 1)
-        .executeTakeFirstOrThrow();
-      if (!control.active_session_id) return undefined;
-      return tx
-        .selectFrom('demo_market')
-        .selectAll()
-        .where('session_id', '=', control.active_session_id)
-        .executeTakeFirst();
-    });
-  }
-
-  private async ready(): Promise<boolean> {
-    return this.exchange.readTransaction(async (tx) => {
+  private async prepare(): Promise<State | undefined> {
+    // Avoid financial transactions during a halt. The command lock remains authoritative.
+    const ready = await this.exchange.readTransaction(async (tx) => {
       const control = await tx
         .selectFrom('exchange_control')
         .selectAll()
         .where('id', '=', 1)
         .executeTakeFirstOrThrow();
-      return Boolean(
-        control.active_session_id &&
-        control.market_state === 'TRADING' &&
-        !control.fault &&
-        !this.exchange.getRuntimeFault(),
+      return (
+        control.market_state === 'TRADING' && !control.fault && !this.exchange.getRuntimeFault()
       );
     });
-  }
-
-  private async prepare(): Promise<State | undefined> {
-    // Access transactions allow an existing enabled simulator to be disclosed during a fault.
-    await this.exchange.accessTransaction(async (tx, control) => {
-      if (!control.active_session_id) return;
-      const existing = await tx
-        .selectFrom('demo_market')
-        .selectAll()
-        .where('session_id', '=', control.active_session_id)
-        .executeTakeFirst();
-      if (existing && !existing.enabled) {
-        await tx
-          .updateTable('demo_market')
-          .set({ enabled: true, updated_at: new Date() })
-          .where('session_id', '=', existing.session_id)
-          .execute();
-        await changed(tx, control, existing.session_id);
-      }
-    });
-    if (!(await this.ready())) return undefined;
+    if (!ready) return undefined;
     return this.exchange.financialTransaction(async (tx, control) => {
       const sessionId = control.active_session_id;
       if (!sessionId || control.market_state !== 'TRADING') return undefined;
-      let state = await tx
+      const state = await tx
         .selectFrom('demo_market')
         .selectAll()
         .where('session_id', '=', sessionId)
         .executeTakeFirst();
-      if (!state) {
-        const maker = randomUUID();
-        const taker = randomUUID();
-        for (const [id, label] of [
-          [maker, 'Demo market maker'],
-          [taker, 'Demo market taker'],
-        ] as const) {
-          await tx.insertInto('accounts').values({ id, kind: 'TRADER', label }).execute();
-          await allocateTrader(tx, sessionId, id, randomUUID());
-        }
-        state = await tx
-          .insertInto('demo_market')
-          .values({
-            session_id: sessionId,
-            maker_account_id: maker,
-            taker_account_id: taker,
-            enabled: true,
-            status: 'RUNNING',
-            plan: '[]',
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow();
-        await changed(tx, control, sessionId);
-      }
+      if (!state?.enabled) return undefined;
       if (state.plan.length) return state;
       const plan: Planned[] = [];
       const open = await tx
@@ -177,23 +116,6 @@ export class DemoMarket {
           },
         });
       const price = nextPrice(state);
-      const quote = (accountId: string, side: 'BUY' | 'SELL', cents: bigint, quantity: string) => {
-        plan.push({
-          type: 'limit',
-          input: {
-            accountId,
-            sessionId,
-            commandId: randomUUID(),
-            side,
-            price: formatPrice(cents),
-            quantity,
-          },
-        });
-      };
-      quote(state.maker_account_id, 'BUY', price - 3000n, '0.0200');
-      quote(state.maker_account_id, 'BUY', price - 1000n, '0.0200');
-      quote(state.maker_account_id, 'SELL', price + 1000n, '0.0200');
-      quote(state.maker_account_id, 'SELL', price + 3000n, '0.0200');
       const inventory = await tx
         .selectFrom('balances')
         .select('amount')
@@ -202,9 +124,19 @@ export class DemoMarket {
         .where('asset', '=', 'BTC-SIM')
         .execute();
       const base = inventory.reduce((sum, row) => sum + BigInt(row.amount), 0n);
-      // Restore the taker's starting inventory; alternate around it when no human intervenes.
-      const side = base <= 10000n ? 'BUY' : 'SELL';
-      quote(state.taker_account_id, side, side === 'BUY' ? price + 1000n : price - 1000n, '0.0010');
+      for (const quote of quoteIntents(price, base)) {
+        plan.push({
+          type: 'limit',
+          input: {
+            accountId: quote.role === 'maker' ? state.maker_account_id : state.taker_account_id,
+            sessionId,
+            commandId: randomUUID(),
+            side: quote.side,
+            price: formatPrice(quote.price),
+            quantity: formatQuantity(quote.quantity),
+          },
+        });
+      }
       return tx
         .updateTable('demo_market')
         .set({
@@ -220,57 +152,91 @@ export class DemoMarket {
     });
   }
 
+  private async owns(tx: Transaction<Database>, state: State): Promise<boolean> {
+    const current = await tx
+      .selectFrom('demo_market')
+      .select(['enabled', 'generation'])
+      .where('session_id', '=', state.session_id)
+      .executeTakeFirst();
+    return Boolean(current?.enabled && current.generation === state.generation);
+  }
+
   private async runCycle(): Promise<void> {
     const state = await this.prepare();
     if (!state) return;
-    const plan = state.plan as Planned[];
-    for (let index = state.next_command; index < plan.length; index += 1) {
-      if (this.stopping || !(await this.ready())) return;
-      const command = plan[index]!;
-      const result =
-        command.type === 'limit'
-          ? await this.exchange.placeLimit(command.input)
-          : await this.exchange.cancel(command.input);
-      // A committed rejection is terminal too. In particular, do not retry insufficient funds forever.
+    try {
+      const plan = state.plan as Planned[];
+      for (let index = state.next_command; index < plan.length; index += 1) {
+        if (this.stopping) return;
+        const ready = await this.exchange.readTransaction(async (tx) => {
+          const control = await tx
+            .selectFrom('exchange_control')
+            .selectAll()
+            .where('id', '=', 1)
+            .executeTakeFirstOrThrow();
+          return (
+            control.market_state === 'TRADING' &&
+            !control.fault &&
+            !this.exchange.getRuntimeFault() &&
+            (await this.owns(tx, state))
+          );
+        });
+        if (!ready) return;
+        const command = plan[index]!;
+        const result =
+          command.type === 'limit'
+            ? await this.exchange.placeLimit(command.input, undefined, state.generation)
+            : await this.exchange.cancel(command.input, undefined, state.generation);
+        if (result.code === 'STALE_SIMULATOR' || result.code === 'STALE_SESSION') return;
+        // Terminal rejections advance too. An ambiguous outcome leaves the original ID to retry.
+        const advanced = await this.exchange.accessTransaction(async (tx, control) => {
+          if (!(await this.owns(tx, state))) return false;
+          await tx
+            .updateTable('demo_market')
+            .set({
+              next_command: index + 1,
+              // A pause may win after dispatch's read. Rebuild cancellations on
+              // resume instead of skipping the now-rejected cancellation forever.
+              ...(result.code === 'MARKET_PAUSED' ? { plan: '[]', next_command: 0 } : {}),
+              ...(result.code === 'INSUFFICIENT_FUNDS'
+                ? { status: 'LIMITED_INVENTORY' as const }
+                : {}),
+              updated_at: new Date(),
+            })
+            .where('session_id', '=', state.session_id)
+            .execute();
+          if (result.code === 'INSUFFICIENT_FUNDS') await changed(tx, control, state.session_id);
+          return true;
+        });
+        if (!advanced || result.code === 'MARKET_PAUSED' || result.code === 'INVARIANT_FAILURE')
+          return;
+        if (result.status === 'REJECTED' && result.code !== 'INSUFFICIENT_FUNDS')
+          throw new Error('DEMO_COMMAND_REJECTED');
+      }
       await this.exchange.accessTransaction(async (tx, control) => {
+        if (!(await this.owns(tx, state))) return;
         await tx
           .updateTable('demo_market')
           .set({
-            next_command: index + 1,
-            ...(result.code === 'INSUFFICIENT_FUNDS'
-              ? { status: 'LIMITED_INVENTORY' as const }
-              : {}),
+            cycle: (BigInt(state.cycle) + 1n).toString(),
+            plan: '[]',
+            next_command: 0,
             updated_at: new Date(),
           })
           .where('session_id', '=', state.session_id)
           .execute();
-        if (result.code === 'INSUFFICIENT_FUNDS') await changed(tx, control, state.session_id);
+        await changed(tx, control, state.session_id);
       });
-      if (result.code === 'MARKET_PAUSED' || result.code === 'INVARIANT_FAILURE') return;
-      if (result.status === 'REJECTED' && result.code !== 'INSUFFICIENT_FUNDS')
-        throw new Error('DEMO_COMMAND_REJECTED');
+    } catch (error) {
+      await this.reportError(state);
+      throw error;
     }
-    await this.exchange.accessTransaction(async (tx, control) => {
-      await tx
-        .updateTable('demo_market')
-        .set({
-          cycle: (BigInt(state.cycle) + 1n).toString(),
-          plan: '[]',
-          next_command: 0,
-          updated_at: new Date(),
-        })
-        .where('session_id', '=', state.session_id)
-        .execute();
-      await changed(tx, control, state.session_id);
-    });
   }
 
-  private async reportError(skipWhenStopping = false): Promise<void> {
+  private async reportError(state: State): Promise<void> {
     try {
-      const state = await this.state();
-      if (!state) return;
       await this.exchange.accessTransaction(async (tx, control) => {
-        if (skipWhenStopping && this.stopping) return;
+        if (!(await this.owns(tx, state))) return;
         await tx
           .updateTable('demo_market')
           .set({ status: 'ERROR', updated_at: new Date() })
@@ -279,60 +245,18 @@ export class DemoMarket {
         await changed(tx, control, state.session_id);
       });
     } catch {
-      /* Lost database access: leave intent intact for the next fenced process. */
+      /* Lost database access: preserve durable intent for the next fenced process. */
     }
   }
 
-  /** Disable intent first, then clean only these accounts. Never delete fills or refill inventory. */
-  async stop(): Promise<void> {
+  /** Drain this process only. Admin stop is a separate, durable, audited command. */
+  async close(): Promise<void> {
     this.stopping = true;
     clearTimeout(this.timer);
     try {
       await this.pending;
     } catch {
-      /* Resolve remaining orders from PostgreSQL below. */
-    }
-    const state = await this.state();
-    if (!state) return;
-    if (!state.enabled && state.status === 'STOPPED' && state.plan.length === 0) return;
-    await this.exchange.accessTransaction(async (tx, control) => {
-      await tx
-        .updateTable('demo_market')
-        .set({ enabled: false, status: 'ERROR', updated_at: new Date() })
-        .where('session_id', '=', state.session_id)
-        .execute();
-      await changed(tx, control, state.session_id);
-    });
-    try {
-      const orders = await this.exchange.readTransaction((tx) =>
-        tx
-          .selectFrom('orders')
-          .select(['id', 'account_id'])
-          .where('session_id', '=', state.session_id)
-          .where('account_id', 'in', [state.maker_account_id, state.taker_account_id])
-          .where('status', 'in', ACTIVE)
-          .execute(),
-      );
-      for (const order of orders) {
-        const result = await this.exchange.cancel({
-          sessionId: state.session_id,
-          accountId: order.account_id,
-          orderId: order.id,
-          commandId: randomUUID(),
-        });
-        if (result.status !== 'ACCEPTED') throw new Error('DEMO_CLEANUP_REJECTED');
-      }
-      await this.exchange.accessTransaction(async (tx, control) => {
-        await tx
-          .updateTable('demo_market')
-          .set({ status: 'STOPPED', plan: '[]', next_command: 0, updated_at: new Date() })
-          .where('session_id', '=', state.session_id)
-          .execute();
-        await changed(tx, control, state.session_id);
-      });
-    } catch {
-      // Fault-safe inspection remains available; leftover orders and ERROR stay visible.
-      await this.reportError();
+      /* The persisted plan resolves uncertain work on restart. */
     }
   }
 }

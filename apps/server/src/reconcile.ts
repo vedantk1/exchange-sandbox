@@ -232,9 +232,13 @@ export async function reconcileDatabase(
       code: 'GRANT_JOURNAL',
       query: sql`
         select g.id::text as detail from grants g
-        join users recipient on recipient.account_id = g.account_id
+        join accounts recipient on recipient.id = g.account_id
         join users actor on actor.account_id = g.actor_id
-        where recipient.role <> 'TRADER' or actor.role <> 'ADMIN' or not exists (
+        where recipient.kind <> 'TRADER' or actor.role <> 'ADMIN' or not (
+          exists (select 1 from users where account_id = g.account_id and role = 'TRADER')
+          or exists (select 1 from demo_market where session_id = g.session_id
+            and g.account_id in (maker_account_id, taker_account_id))
+        ) or not exists (
           select j.id from journal_transactions j
           join journal_entries e on e.journal_transaction_id = j.id
           join accounts owner on owner.id = e.account_id

@@ -1,6 +1,6 @@
 # Sandbox API
 
-The API is the authenticated boundary around the PostgreSQL exchange core. It uses ordinary HTTP requests, opaque cookie sessions, and exact decimal strings. All assets and balances are simulated. The trader and administrator browser workspaces use committed snapshots and authenticated live invalidations. An opt-in development simulator submits ordinary orders internally and exposes read-only workspace status. Protected market orders, administrator-operated liquidity-bot controls, and session rollover remain separate milestones.
+The API is the authenticated boundary around the PostgreSQL exchange core. It uses ordinary HTTP requests, opaque cookie sessions, and exact decimal strings. All assets and balances are simulated. The trader and administrator browser workspaces use committed snapshots and authenticated live invalidations. An administrator-managed simulator submits ordinary orders internally, with private inventory diagnostics and audited start/stop/funding controls. Protected market orders and session rollover remain separate milestones.
 
 The trader interface and administrator controls use the same transaction boundary as the core. Administrator routes support the application; they do not establish a separate, stable automation product.
 
@@ -70,24 +70,26 @@ Invitation redemption creates and funds an account atomically. Sign in after red
 
 Administrator mutations use `{ commandId, sessionId, reason }` plus the additional fields shown below. Every administrator route requires the administrator role; passing an administrator's account identifier never substitutes for that role.
 
-| Method | Path                                      | Purpose / additional mutation fields                                    |
-| ------ | ----------------------------------------- | ----------------------------------------------------------------------- |
-| GET    | `/api/admin/overview`                     | Read operational state                                                  |
-| GET    | `/api/admin/traders`                      | List participant accounts                                               |
-| GET    | `/api/admin/traders/:accountId`           | Inspect an account snapshot                                             |
-| GET    | `/api/admin/traders/:accountId/workspace` | Inspect account balances, orders, fills, journal activity, and commands |
-| GET    | `/api/admin/invitations`                  | List invitation metadata and state                                      |
-| POST   | `/api/admin/invitations`                  | Create a single-use invitation                                          |
-| POST   | `/api/admin/invitations/:id/revoke`       | Revoke an unused invitation                                             |
-| POST   | `/api/admin/traders/:accountId/recovery`  | Issue a trader recovery token and invalidate preceding unused tokens    |
-| POST   | `/api/admin/traders/:accountId/suspend`   | Revoke access and cancel the remaining open orders                      |
-| POST   | `/api/admin/traders/:accountId/reinstate` | Restore access without repeating initial funding                        |
-| POST   | `/api/admin/market/pause`                 | Pause order admission and matching                                      |
-| POST   | `/api/admin/market/resume`                | Resume a healthy market                                                 |
-| POST   | `/api/admin/reconcile`                    | Record a reconciliation check; inspect `data.ok` and `data.issues`      |
-| POST   | `/api/admin/orders/:orderId/cancel`       | Cancel an order remainder administratively                              |
-| POST   | `/api/admin/grants`                       | Issue funds; add `{ accountId, asset, amount }`                         |
-| GET    | `/api/admin/audit`                        | Inspect administrator action history without secrets                    |
+| Method | Path                                      | Purpose / additional mutation fields                                             |
+| ------ | ----------------------------------------- | -------------------------------------------------------------------------------- |
+| GET    | `/api/admin/overview`                     | Read operational state                                                           |
+| GET    | `/api/admin/traders`                      | List participant accounts                                                        |
+| GET    | `/api/admin/traders/:accountId`           | Inspect an account snapshot                                                      |
+| GET    | `/api/admin/traders/:accountId/workspace` | Inspect account balances, orders, fills, journal activity, and commands          |
+| GET    | `/api/admin/invitations`                  | List invitation metadata and state                                               |
+| POST   | `/api/admin/invitations`                  | Create a single-use invitation                                                   |
+| POST   | `/api/admin/invitations/:id/revoke`       | Revoke an unused invitation                                                      |
+| POST   | `/api/admin/traders/:accountId/recovery`  | Issue a trader recovery token and invalidate preceding unused tokens             |
+| POST   | `/api/admin/traders/:accountId/suspend`   | Revoke access and cancel the remaining open orders                               |
+| POST   | `/api/admin/traders/:accountId/reinstate` | Restore access without repeating initial funding                                 |
+| POST   | `/api/admin/market/pause`                 | Pause order admission and matching                                               |
+| POST   | `/api/admin/market/resume`                | Resume a healthy market                                                          |
+| POST   | `/api/admin/reconcile`                    | Record a reconciliation check; inspect `data.ok` and `data.issues`               |
+| POST   | `/api/admin/orders/:orderId/cancel`       | Cancel an order remainder administratively                                       |
+| POST   | `/api/admin/simulator/start`              | Enable the simulator; first start initializes both accounts and allocations once |
+| POST   | `/api/admin/simulator/stop`               | Disable dispatch and cancel its orders; inspect pending cleanup in the result    |
+| POST   | `/api/admin/grants`                       | Issue funds; add `{ accountId, asset, amount }`                                  |
+| GET    | `/api/admin/audit`                        | Inspect administrator action history without secrets                             |
 
 Invitation and recovery issuance return their plaintext `token` only on the first successful response. A retry returns the persisted metadata without the secret. If that first response is lost, revoke the unusable invitation and issue a new one; a new recovery issuance invalidates its predecessor. Persisting a plaintext secret in a retry receipt would weaken the storage guarantee.
 
@@ -105,17 +107,23 @@ Account workspaces include all open orders, 100 recent orders, 100 recent fills,
 
 Candles use complete one-minute execution buckets before limiting to the latest 60 observed buckets, in ascending timestamp order. Missing minutes stay absent; no price or volume is fabricated. Shared market data contains no participant or order identities.
 
-When the active session has a persisted development simulator, `GET /api/workspace` includes optional `market.demoMarket` metadata:
+When the active session has a persisted simulator, `GET /api/workspace` includes optional `market.demoMarket` metadata:
 
-| Field       | Meaning                                                                                                                                       |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`   | Whether simulator intent is enabled; pause or fault can still prevent dispatch                                                                |
-| `status`    | `RUNNING`, `LIMITED_INVENTORY`, `STOPPED`, or `ERROR`; enabled simulators report `PAUSED` or `FAULTED` when the exchange gate blocks activity |
-| `updatedAt` | Timestamp of the last stored simulator-state update, not a guaranteed trade timestamp                                                         |
+| Field       | Meaning                                                                                                                                                   |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`   | Whether simulator intent is enabled; pause or fault can still prevent dispatch                                                                            |
+| `status`    | `RUNNING`, `LIMITED_INVENTORY`, `STOPPED`, `STOPPING`, or `ERROR`; enabled simulators report `PAUSED` or `FAULTED` when the exchange gate blocks activity |
+| `updatedAt` | Timestamp of the last stored simulator-state update, not a guaranteed trade timestamp                                                                     |
 
 The object is absent before simulator state exists for that session. `RUNNING` does not guarantee a fill in every cycle. The administrator workspace adds `makerAccountId` and `takerAccountId` under `admin.overview.demoMarket`, allowing the existing account-inspection routes to show their balances, orders, fills, and journal activity. These identities are omitted from trader workspace responses. The automated accounts have no login credentials and do not appear in the invited-trader list or participant counts. These fields belong to the workspace response; the standalone `/api/admin/overview` and `/api/market` responses retain their existing shapes.
 
-There are no simulator start, stop, refill, or price-setting HTTP endpoints. The local operator controls the opt-in development process as documented in the [development guide](DEVELOPMENT.md#development-demo-market). Administrator market pause/resume applies to automated and human order admission alike. Simulator status changes trigger shared workspace invalidation; its private commands and accounting remain subject to the existing ownership filters.
+Simulator start/stop use the ordinary administrator command body `{commandId, sessionId, reason}`, authorization/CSRF checks, durable receipt, and audit path. Start is valid while healthy and paused; it does not bypass the market gate. First start creates and allocates the pair once. Later starts preserve funds and an already-running plan. Start returns `data.enabled`, `data.simulatorStatus`, both account IDs, and `data.generation`. Starting with cleanup pending rejects `PENDING_CANCELLATION`.
+
+Stop increments the generation under the trading lock so older queued work cannot execute after confirmation, even following another start. Its result includes `data.enabled: false`, `data.simulatorStatus`, `data.pendingCancellation`, and `data.canceledOrders`. An accepted stop with `pendingCancellation: true` means dispatch is disabled but cleanup is still pending; it is not a claim that reservations were released. Resume completes pending cleanup only after reconciliation. Stopped intent survives restarts.
+
+`POST /api/admin/grants` permits an active human trader or either registered simulator account in the active session. It still requires a paused, healthy market and a positive exact amount (up to 100 BTC-SIM or 10,000,000 USD-SIM per grant). Arbitrary loginless accounts, the administrator, issuance, and fee accounts are ineligible. Grant records, balanced issuance entries, and receipts commit together; retries never duplicate funding. There is no automatic refill or price-setting endpoint.
+
+The administrator simulator object also includes `referencePrice` and `inventory.{maker,taker}`. Each inventory has `balances` for both assets and `orders`, with `{side, price, quantity, asset, required, shortfall, affordable}`. Amounts remain decimal strings. The preview uses the stored reference and total inventory after releasing old reservations, includes buy fees, and assumes no sale proceeds; it is not a reservation or guarantee of next-cycle quotes. Identities and these inventory details never appear in trader workspace responses. Lifecycle changes trigger shared invalidations containing only cursor/session metadata.
 
 After fetching the workspace, open one `EventSource` at `/api/events?sessionId=<sessionId>&cursor=<cursor>`. The cookie authenticates the stream; never put authentication tokens in its URL. Each `ready`, `invalidate`, `reset`, or `heartbeat` event contains only `{ sessionId, cursor }`. Its SSE `id` is the cursor. Native reconnect `Last-Event-ID` takes precedence over the query cursor. Refresh the authoritative workspace on invalidation, reset, reconnect, and heartbeat; a heartbeat can also refresh time-dependent invitation expiry and audit changes with no outbox entry. An `auth-lost` event closes the stream and rechecks the current browser session: password rotation may have installed a new cookie while the old stream still used the revoked session. Reconnect only when that current session belongs to the same actor; otherwise clear private client state. `unavailable` means reconnect and refresh when the service returns.
 

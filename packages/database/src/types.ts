@@ -19,7 +19,8 @@ export interface Database {
     maker_account_id: string;
     taker_account_id: string;
     enabled: boolean;
-    status: 'RUNNING' | 'STOPPED' | 'LIMITED_INVENTORY' | 'ERROR';
+    status: 'RUNNING' | 'STOPPED' | 'STOPPING' | 'LIMITED_INVENTORY' | 'ERROR';
+    generation: DefaultExactInteger;
     cycle: DefaultExactInteger;
     reference_price: DefaultExactInteger;
     plan: ColumnType<unknown[], string, string>;

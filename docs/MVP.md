@@ -2,13 +2,13 @@
 
 Status: MVP product scope accepted. The defaults below define the agreed exchange sandbox, with real funds excluded. They are requirements, not claims about implemented features. The accepted technical design is recorded separately in [System architecture and stack](ARCHITECTURE.md); [development and validation](DEVELOPMENT.md) tracks the implemented milestone.
 
-The current development build also includes the explicitly requested two-account demo market below. It generates ongoing sandbox executions for the trader workflow and charts. It is separate from the planned administrator-operated single liquidity bot; the full bot controls, allocation preset, grants workflow, and lifecycle acceptance are not yet implemented.
+The accepted automation design is the two-account demo market simulator below. It replaces the earlier single quoting-bot proposal. Its administrator controls, inventory visibility, and audited funding are implemented; session rollover, protected market orders, and exports remain future work.
 
 The product lets a developer or technical learner run a small exchange, trade virtual assets, and inspect how orders, executions, fees, and balances change. Its primary value is understandable exchange behavior. It does not promise realistic trading returns or reproduce an external exchange's liquidity.
 
 ## Product boundaries
 
-- One installation has one shared active trading session. Invited traders and the planned optional liquidity bot use the same order book. The current development simulator uses two disclosed automated participants in that same book.
+- One installation has one shared active trading session. Invited traders and the optional simulator use the same order book. The simulator has two disclosed automated participants: a maker and a taker.
 - There is one predefined spot pair, BTC-SIM / USD-SIM. Both are internal virtual assets with no monetary value, blockchain connection, deposit address, or withdrawal path.
 - Matching happens between orders in this installation. All charts and market statistics use its own executions. There are no external market feeds or exchange integrations.
 - The product has an original identity and interface. Familiar order-book conventions are useful; Binance branding and copied assets are excluded.
@@ -19,9 +19,9 @@ The product lets a developer or technical learner run a small exchange, trade vi
 
 ## Roles and permissions
 
-There are two human roles and one system participant. The administrator uses a separate trader account to trade; the administrator account has no trading balance.
+There are two human roles and two automated system participants. The administrator uses a separate trader account to trade; the administrator account has no trading balance.
 
-| Capability                       | Trader                           | Administrator                         | Liquidity bot         |
+| Capability                       | Trader                           | Administrator                         | Simulator accounts    |
 | -------------------------------- | -------------------------------- | ------------------------------------- | --------------------- |
 | View current shared market data  | Yes                              | Yes                                   | Yes                   |
 | Place orders                     | Own account only                 | No                                    | Own account only      |
@@ -31,7 +31,7 @@ There are two human roles and one system participant. The administrator uses a s
 | Invite or suspend traders        | No                               | Yes                                   | No                    |
 | Issue virtual funds              | No                               | Recorded positive grants while paused | No                    |
 | Pause or resume trading          | No                               | Yes                                   | No                    |
-| Start or stop the bot            | No                               | Yes                                   | No                    |
+| Start or stop the simulator      | No                               | Yes                                   | No                    |
 | Start a new session              | No                               | Yes                                   | No                    |
 
 MVP has one administrator established during first setup. Additional administrator roles, delegated permissions, impersonation, and account deletion are excluded. Suspended accounts retain their history.
@@ -49,7 +49,7 @@ MVP has one administrator established during first setup. Additional administrat
 
 These are product surfaces, not a requirement for separate pages. Order details may be a panel. Desktop is the primary trading layout; narrow screens must retain readable balances and usable order and cancellation controls. Native mobile apps are excluded.
 
-Every trading surface identifies the active session and virtual asset status. Shared market data must not expose trader handles or account identifiers. Bot participation is disclosed with a system-liquidity label. Private account details remain restricted by role.
+Every trading surface identifies the active session and virtual asset status. Shared market data must not expose trader handles or account identifiers. Simulator participation is disclosed with a system-liquidity label. Private account details remain restricted by role.
 
 Before the first trade, the chart and last-trade price show an honest empty state. Empty time intervals do not invent trades or volume. Order-book prices may exist before a last-trade price exists.
 
@@ -61,7 +61,7 @@ The implemented chart also explains the first one to four populated minute bucke
 
 1. A trader opens a valid invitation, chooses an unused handle and password, and creates an account. The invitation cannot be used again.
 2. The account receives the session's initial allocation once: 1 BTC-SIM and 100,000 USD-SIM. The activity history records both allocations.
-3. Onboarding explains that participants trade inside this installation, all assets are virtual, and the bot supplies synthetic liquidity when enabled.
+3. Onboarding explains that participants trade inside this installation, all assets are virtual, and the simulator supplies synthetic liquidity when enabled.
 4. The trader enters the workspace. A paused or empty market displays its actual state and an explanation of available actions.
 
 Invalid, revoked, expired, or already-used invitations show an explanation and direct the person to the operator. The interface does not reveal other accounts' details.
@@ -125,7 +125,7 @@ All prices and quantities below are illustrative simulation settings, not curren
 | Market duration            | Immediate execution within the confirmed guard, then cancel the remainder                                                                                                                 |
 | Market buy guard           | Preview best ask multiplied by 1.05, rounded down to the price increment                                                                                                                  |
 | Market sell guard          | Preview best bid multiplied by 0.95, rounded up to the price increment                                                                                                                    |
-| Fees                       | 0.1 percent of executed quote notional on each side, paid in USD-SIM; same rate for makers, takers, humans, and the bot                                                                   |
+| Fees                       | 0.1 percent of executed quote notional on each side, paid in USD-SIM; same rate for makers, takers, humans, and the simulator                                                             |
 | Amendments                 | Cancel and submit a new order; the new order gets new priority                                                                                                                            |
 | Self-trade prevention      | On encountering its own resting order, cancel the incoming order's unfilled remainder. Preserve earlier fills and the resting order. Do not skip the resting order to reach worse prices. |
 | Ownership                  | No margin, borrowing, short selling, or negative spendable balances                                                                                                                       |
@@ -144,34 +144,28 @@ The minimum-notional rule applies when submitting an order. Valid executions and
 - Available plus reserved equals total for each asset. Display rounding must not hide the exact amount available to spend; details and exports expose supported precision.
 - Fees accumulate in a visible system fee account. Grants create explicit virtual issuance records. Every change has an attributable cause; balances cannot be overwritten or silently repaired.
 
-## Development demo market (implemented)
+## Two-account market simulator
 
-The operator can explicitly enable a local simulator with `pnpm dev:market`. It is restricted to development mode on loopback and uses two non-login accounts, each with the ordinary one-time initial allocation of 1 BTC-SIM and 100,000 USD-SIM. The trader workspace labels the activity as synthetic, and the administrator can inspect both accounts. Human orders and automated orders share the same matching rules and may execute against each other.
+The administrator explicitly starts the simulator from the overview. The first start creates a maker and a taker without login credentials, each receiving 1 BTC-SIM and 100,000 USD-SIM once per session. Start is permitted while healthy and paused; order submission waits for resume. Later starts and application restarts preserve the same accounts and balances. Automated accounts are excluded from human participant counts.
 
-After each completed cycle, the service waits four seconds. The maker replaces its remaining quotes with two bids and two asks of 0.0200 BTC-SIM, at 10 and 30 USD-SIM offsets around a fictional reference that moves within 48,000–52,000 USD-SIM. The taker submits a 0.0010 BTC-SIM crossing limit order, choosing its side according to its BTC inventory. Ordinary fees, reservations, self-trade prevention, and limits apply. Limited inventory is visible and never causes automatic funding. There is no external market feed, historical backfill, or direct candle generation.
+After each completed cycle, the service waits four seconds. It cancels both accounts' remaining orders, then requests two maker bids and two asks of 0.0200 BTC-SIM, at 10 and 30 USD-SIM offsets around a fictional reference moving within 48,000–52,000 USD-SIM. Replacement orders get fresh price/time priority. The taker submits a 0.0010 BTC-SIM crossing limit order: buy when its total BTC inventory is at or below 1 BTC-SIM, otherwise sell. This encourages activity but cannot guarantee a fill or a stable inventory.
 
-A pause freezes activity without canceling orders. Persisted command plans and receipt identities support restart without repeating allocations or duplicating accepted effects. Normal shutdown, or starting with the simulator disabled, cancels its remaining orders while preserving completed trades and unrelated orders. Cleanup blocked by an accounting fault stays visibly incomplete. The [development guide](DEVELOPMENT.md#development-demo-market) describes controls and recovery. This smaller development flow has no browser start/stop controls and does not claim the full bot lifecycle below is complete.
+Both accounts use ordinary matching, reservations, self-trade prevention, fees, and finite funds. They can trade with each other and with people. This synthetic activity is disclosed; it is not a market-realism or profitability claim. Charts use only actual sandbox executions and timestamps, with no historical backfill or direct candle generation.
 
-## Liquidity bot (planned full-MVP flow)
+The administrator sees each account's available and reserved balances, account inspection links, and exact funding requirements/shortfalls per order level. The funding preview includes buy fees and assumes old reservations are released first; it uses the stored reference price and assumes no execution proceeds. The next cycle's price or other trades can change affordability. Insufficient funds reject individual orders and produce Limited inventory, never borrowing or automatic issuance.
 
-One disclosed bot account supplies a useful book when no other trader is present. Its initial allocation is 100 BTC-SIM and 5,000,000 USD-SIM. It uses the same matching, fees, balance checks, and self-trade rule as traders.
+State is Not started, Running, Paused, Limited inventory, Stopped, Stopping, Error, or Faulted. Paused/Faulted reflect the exchange gate; the persisted enabled setting remains separate. A confirmed stop disables dispatch and cancels only these accounts' remaining orders. Earlier trades and human orders remain. If accounting blocks cancellation, Stopping explicitly means disabled with cleanup pending. Reconciliation and recovery finish cleanup before reopening trading. The state timestamp records the last persisted change, not worker liveness.
 
-The default preset has buy quotes at 49,900, 49,800, and 49,700 USD-SIM, and sell quotes at 50,100, 50,200, and 50,300 USD-SIM, each targeting 0.05 BTC-SIM. These are fictional starting prices. On a five-second cycle, while funds permit, the bot restores each level to that target. A fully unchanged quote retains priority. For a partially consumed quote, the bot cancels the remainder and submits one replacement for 0.05 BTC-SIM with new priority. An empty level receives a new quote. Replacement follows ordinary cancellation outcomes and funds checks; there is never a hidden order amendment or guaranteed replenishment.
-
-The bot is a basic quoting participant, not an external-market simulator or trading strategy. It does not manufacture historical candles or trade with itself to create volume. If funds cannot support a target quote, it skips that quote and displays a limited-inventory reason. It does not mint funds or borrow. Additional funding requires an explicit administrator grant.
-
-States are Stopped, Running, Frozen by market pause, or Error. Limited inventory is a visible condition on a running bot. Stopping the bot cancels its remaining orders and releases their reservations; completed trades remain. A stop result must report any failure to cancel a quote instead of claiming completion.
+An application shutdown drains in-flight work and preserves intent and order state. Restart reconciles before resuming an enabled simulator and resolves unfinished commands by their original identities. A stopped simulator stays stopped. Administrator stop advances a generation checked under the trading lock, preventing older queued work from executing even after another start.
 
 ## Administrator features and flows
 
 ### First setup and first usable market
 
-The bot setup steps in this full-MVP flow remain planned. Current local setup creates a paused session without bot accounts; the development simulator allocates its two accounts only when first enabled in a healthy trading market.
-
 1. On an uninitialized installation, the operator uses the documented local setup process to create the administrator. No universal default credentials are supplied. Setup cannot claim an installation that already has an administrator.
-2. The first session is created Paused, with fixed market rules, an initial bot allocation, and the bot Stopped. There are no invented trades.
-3. The administrator sees a checklist: invite a trader, review starting allocations and rules, enable the bot if desired, and resume trading.
-4. The administrator can arm the bot while paused. Resume explicitly states whether bot quoting will start. With the bot enabled, a fresh installation becomes tradable without a second human participant.
+2. The first session is created Paused, with fixed market rules and the simulator Not started. Automated accounts receive their allocations only on the first explicit start. There are no invented trades.
+3. The administrator sees a checklist: invite a trader, review starting allocations and rules, enable the simulator if desired, and resume trading.
+4. The administrator can arm the simulator while paused. Resume explicitly states whether simulator activity will start. With the simulator enabled, a fresh installation becomes tradable without a second human participant.
 
 ### Invite and manage access
 
@@ -185,7 +179,7 @@ Suspended traders cannot sign in until reinstated. Account history remains avail
 
 ### Inspect the exchange
 
-The administrator overview shows active session, market state, bot state and inventory condition, account counts, open order counts, recent executions, and any unresolved order/balance consistency failure. These are operational facts, not profit or performance metrics.
+The administrator overview shows active session, market state, simulator state and inventory condition, account counts, open order counts, recent executions, and any unresolved order/balance consistency failure. These are operational facts, not profit or performance metrics.
 
 The administrator can inspect any account's orders, fills, balances, grants, and reservation changes; inspect the system fee account; and search by account handle or order identity. Each trade links both order identities in the administrator view. Trader views expose only their own private order details.
 
@@ -195,8 +189,8 @@ CSV export includes orders, fills, balance activity, available/reserved/total ba
 
 1. Pause requires a reason and explains that new orders and matching will stop, while existing orders and reservations remain.
 2. A confirmed pause is an authoritative boundary: earlier accepted executions may complete before confirmation; no new orders or fills occur after that confirmation until resume.
-3. During pause, read access and cancellation remain available. A running bot freezes, retaining its unfilled quotes. Stop bot remains available and cancels those quotes.
-4. Resume confirms the market and bot behavior, records a reason, and reopens order submission and matching. A stopped bot stays stopped. An enabled frozen bot resumes.
+3. During pause, read access and cancellation remain available. An enabled simulator freezes, retaining its unfilled quotes. Stop simulator remains available and cancels those quotes.
+4. Resume confirms the market and simulator behavior, records a reason, and reopens order submission and matching. A stopped simulator stays stopped. An enabled frozen simulator resumes.
 
 A pause can also result from a detected consistency failure. This differs from an operator pause: resume, grants, invitation redemption, reinstatement, initial allocations, balance-changing cancellations, and new-session transitions are blocked until reconciliation succeeds. Read-only inspection and immediate access revocation remain available; dependent cancellations stay visibly pending. The reason remains visible, and the administrator cannot bypass it by starting a new session. Pausing does not retroactively cancel or reverse trades.
 
@@ -208,26 +202,26 @@ A pause can also result from a detected consistency failure. This differs from a
 
 ### Grant virtual funds
 
-1. While the market is paused, select an active trader or the bot, select an asset, enter a positive amount within its supported precision, and provide a reason.
+1. While the market is paused, select an active trader or either simulator account, select an asset, enter a positive amount within its supported precision, and provide a reason.
 2. Review the resulting balance, virtual issuance amount, and participant. Confirm once.
 3. Record the grant in the participant's activity and administrator history. Repeating the same submission cannot issue funds twice.
 
-Grants never modify an existing reservation or a prior record. Direct balance editing, deductions, fees paid out to administrators, and trader-controlled refills are excluded. The bot can continue using granted funds when resumed.
+Grants never modify an existing reservation or a prior record. Direct balance editing, deductions, fees paid out to administrators, and trader-controlled refills are excluded. Both simulator accounts can continue using granted funds when resumed.
 
-### Start and stop the bot (planned)
+### Start and stop the simulator
 
-1. Start shows the fixed preset, available inventory, and whether the market is trading or paused. It is valid to enable the bot while paused; quoting waits for resume.
-2. Start does not grant more funds. Insufficient inventory displays the missing side or level instead of implying full liquidity.
-3. Stop confirms that the bot's remaining orders will be canceled. It waits for cancellation results and leaves earlier executions intact.
-4. A bot error is visible to the administrator and does not silently refill or reset the account. Any orders still present are listed and remain cancelable.
+1. Start shows the fixed preset, available inventory, and whether the market is trading or paused. It is valid to enable the simulator while paused; quoting waits for resume.
+2. First start initializes the pair and their standard allocations once. Later starts do not grant more funds. Insufficient inventory displays the missing side or level instead of implying full liquidity.
+3. Stop confirms that the simulator's remaining orders will be canceled. It waits for cancellation results and leaves earlier executions intact.
+4. A simulator error is visible to the administrator and does not silently refill or reset the account. Any orders still present are listed and remain cancelable.
 
 ### Start a new session
 
 1. The market must be paused. Show the affected account count, open order count, and the fact that all participants move to a new session.
 2. Require a reason and explicit confirmation of the current session identity. No reset takes effect merely by opening the dialog.
-3. Stop the bot, cancel all remaining orders with a session-ended reason, release reservations, and close the session. Preserve its orders, fills, final balances, grants, fees, and administrator history as a read-only archive.
-4. Create exactly one new session with the same fixed rules. Each active trader receives the standard initial allocation; the bot receives its standard allocation. Suspended accounts remain suspended and receive funds only when first activated in that new session. Each account can receive the initial allocation only once per session.
-5. Preserve accounts, roles, passwords, restrictions, and outstanding invitations with their original expiry times. Keep the new market Paused and the bot Stopped.
+3. Stop the simulator, cancel all remaining orders with a session-ended reason, release reservations, and close the session. Preserve its orders, fills, final balances, grants, fees, and administrator history as a read-only archive.
+4. Create exactly one new session with the same fixed rules. Each active trader receives the standard initial allocation; both existing simulator accounts receive the same standard per-account allocation once. Suspended accounts remain suspended and receive funds only when first activated in that new session. Each account can receive the initial allocation only once per session.
+5. Preserve accounts, roles, passwords, restrictions, and outstanding invitations with their original expiry times. Keep the new market Paused and the simulator Stopped.
 6. Notify connected traders that the session changed and invalidate old previews/forms. There must never be two simultaneously tradable sessions or an intermediate session with partially reset balances.
 
 While rollover is in progress, invitation redemption, reinstatement, and grants are temporarily unavailable. Already accepted enrollments or grants must resolve before closing the old session, and those enrolled accounts then participate in the normal carryover. Requests not yet accepted receive a temporary-unavailability response and can be retried after the transition without consuming an invitation. Every allocation belongs to exactly one session; no account is silently omitted or funded in an already archived session.
@@ -236,47 +230,47 @@ Retries must recover the outcome of the same new-session request. An interrupted
 
 ## Failure behavior and audit history
 
-| Situation                                  | Required product behavior                                                                                                                                                                                                                     |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Order response is lost                     | Show Unknown while resolving the original submission; a retry cannot create another order                                                                                                                                                     |
-| Order fills before cancellation            | Preserve the fills and explain the quantity that could still be canceled                                                                                                                                                                      |
-| Price moves after a market preview         | Keep the confirmed guard; execute only within it, possibly partially or not at all                                                                                                                                                            |
-| Market is paused during activity           | Report outcomes relative to the confirmed pause boundary; do not claim an earlier accepted fill was reversed                                                                                                                                  |
-| Bot inventory is exhausted                 | Show reduced or absent liquidity with the reason; never silently add funds                                                                                                                                                                    |
-| Client misses updates                      | Mark data stale and reconcile before enabling new submissions                                                                                                                                                                                 |
-| Service restarts                           | Preserve committed activity and the active session. Reconcile orders, reservations, fees, and pending results before trading resumes. Restore prior market/bot intentions only after reconciliation; unresolved failures keep trading paused. |
-| Session changes during an order            | Resolve against the old session or reject it as obsolete; never place it in the new session                                                                                                                                                   |
-| Administrator operation fails or times out | Show pending/unknown/failed as appropriate, retain action identity, and recover its actual result before offering an unsafe repeat                                                                                                            |
-| Account or order limit is exceeded         | Return a specific rejection without silently accepting only part of the request                                                                                                                                                               |
+| Situation                                  | Required product behavior                                                                                                                                                                                                                           |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Order response is lost                     | Show Unknown while resolving the original submission; a retry cannot create another order                                                                                                                                                           |
+| Order fills before cancellation            | Preserve the fills and explain the quantity that could still be canceled                                                                                                                                                                            |
+| Price moves after a market preview         | Keep the confirmed guard; execute only within it, possibly partially or not at all                                                                                                                                                                  |
+| Market is paused during activity           | Report outcomes relative to the confirmed pause boundary; do not claim an earlier accepted fill was reversed                                                                                                                                        |
+| Bot inventory is exhausted                 | Show reduced or absent liquidity with the reason; never silently add funds                                                                                                                                                                          |
+| Client misses updates                      | Mark data stale and reconcile before enabling new submissions                                                                                                                                                                                       |
+| Service restarts                           | Preserve committed activity and the active session. Reconcile orders, reservations, fees, and pending results before trading resumes. Restore prior market/simulator intentions only after reconciliation; unresolved failures keep trading paused. |
+| Session changes during an order            | Resolve against the old session or reject it as obsolete; never place it in the new session                                                                                                                                                         |
+| Administrator operation fails or times out | Show pending/unknown/failed as appropriate, retain action identity, and recover its actual result before offering an unsafe repeat                                                                                                                  |
+| Account or order limit is exceeded         | Return a specific rejection without silently accepting only part of the request                                                                                                                                                                     |
 
-Administrator history records actor role/account reference, timestamp, session, action, target, reason, result, and resulting grant or order references where applicable. No secret values are included. Visible explanations and exports distinguish user actions, operator actions, bot actions, and recovery actions.
+Administrator history records actor role/account reference, timestamp, session, action, target, reason, result, and resulting grant or order references where applicable. No secret values are included. Visible explanations and exports distinguish user actions, operator actions, simulator actions, and recovery actions.
 
 The trader and developer interfaces enforce the same ownership, session, order, fee, restriction, and retry rules. MVP API coverage includes authentication for invited accounts, current session/market state, shared book and trades, own balances/history, order submission/status, and cancellation. A dedicated administrator automation API, API-key management console, and client libraries are deferred.
 
 ## Release acceptance criteria
 
-Each criterion is a required observable result, not a claim of current implementation.
+Each criterion is a required observable result, not a claim of current implementation. Browser CI covers selected trader/admin workflows; it does not yet establish all full-release criteria below.
 
-| ID  | Scenario                      | Passing result                                                                                                                                                                                                                 |
-| --- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A01 | Fresh installation            | Following the documentation, an operator creates an administrator, invites a trader, enables liquidity, and reaches a first trade without external service credentials                                                         |
-| A02 | Invitations and ownership     | Expired/revoked/used links fail; one trader cannot view or cancel another trader's private orders, including through the API or exports                                                                                        |
-| A03 | Controlled partial fill       | With the bot stopped, trader A sells 0.4 BTC-SIM at 50,000; trader B buys 0.1 at that price. A has 0.1 executed and 0.3 remaining; each side pays 5 USD-SIM                                                                    |
-| A04 | Cancellation and accounting   | A cancels the remaining 0.3 from A03. A finishes with 0.9 BTC-SIM and 104,995 USD-SIM; B has 1.1 BTC-SIM and 94,995 USD-SIM. The fee account holds 10 USD-SIM. Neither account retains a reservation for these terminal orders |
-| A05 | Ordering and self-trade       | Better prices execute first; equal-price orders follow acceptance order. An incoming order encountering its own resting order cancels its remainder without self-execution or skipping to worse prices                         |
-| A06 | Guarded execution             | Depth within a confirmed market guard fills; quantity beyond that depth is canceled. A moved book cannot silently change the guard or overspend the reserved commitment                                                        |
-| A07 | Reservations and fees         | Simultaneous orders cannot reuse reserved funds. Price improvement releases excess. The same total executed notional split across more fills yields the same per-order fee                                                     |
-| A08 | Retry and recovery            | Lost acknowledgements and repeated requests do not duplicate orders, grants, cancellations, or new sessions. Restart preserves committed fills and recovers active orders and reservations                                     |
-| A09 | Operator controls             | Confirmed pause blocks new orders/fills but permits cancellation. Suspension blocks trading and revokes access, with remaining orders canceled and existing fills preserved                                                    |
-| A10 | Bot lifecycle                 | Bot orders obey ordinary rules; stopping cancels remaining quotes. Exhaustion and errors are visible, and restart/start does not secretly fund the bot                                                                         |
-| A11 | Session rollover              | Starting a new session archives complete prior history, retains accounts/restrictions, allocates new funds once, and leaves the new session paused. Old-session requests cannot affect it                                      |
-| A12 | Market truth                  | Candles and volume come from internal executions; the empty market contains no fabricated trade history. All funds and sessions are labeled simulated                                                                          |
-| A13 | Explainability and export     | An operator and trader can trace A03/A04 through order detail, fees, released reservations, final balances, and correctly scoped export files                                                                                  |
-| A14 | Developer onboarding          | Documented API examples can read a market, place a limit order, inspect it, and cancel its remainder under the same rules as the interface                                                                                     |
-| A15 | Fault and rollover boundaries | An unresolved accounting fault blocks grants and session rollover. Enrollment or reinstatement during rollover cannot cause duplicate or missing allocations. Access revocation remains available during a fault               |
-| A16 | Coherent live export          | All exported datasets share a recorded as-of boundary; their balances, reservations, fills, grants, and fees reconcile while later trades remain outside that export                                                           |
+| ID  | Scenario                      | Passing result                                                                                                                                                                                                                   |
+| --- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A01 | Fresh installation            | Following the documentation, an operator creates an administrator, invites a trader, enables liquidity, and reaches a first trade without external service credentials                                                           |
+| A02 | Invitations and ownership     | Expired/revoked/used links fail; one trader cannot view or cancel another trader's private orders, including through the API or exports                                                                                          |
+| A03 | Controlled partial fill       | With the simulator stopped, trader A sells 0.4 BTC-SIM at 50,000; trader B buys 0.1 at that price. A has 0.1 executed and 0.3 remaining; each side pays 5 USD-SIM                                                                |
+| A04 | Cancellation and accounting   | A cancels the remaining 0.3 from A03. A finishes with 0.9 BTC-SIM and 104,995 USD-SIM; B has 1.1 BTC-SIM and 94,995 USD-SIM. The fee account holds 10 USD-SIM. Neither account retains a reservation for these terminal orders   |
+| A05 | Ordering and self-trade       | Better prices execute first; equal-price orders follow acceptance order. An incoming order encountering its own resting order cancels its remainder without self-execution or skipping to worse prices                           |
+| A06 | Guarded execution             | Depth within a confirmed market guard fills; quantity beyond that depth is canceled. A moved book cannot silently change the guard or overspend the reserved commitment                                                          |
+| A07 | Reservations and fees         | Simultaneous orders cannot reuse reserved funds. Price improvement releases excess. The same total executed notional split across more fills yields the same per-order fee                                                       |
+| A08 | Retry and recovery            | Lost acknowledgements and repeated requests do not duplicate orders, grants, cancellations, or new sessions. Restart preserves committed fills and recovers active orders and reservations                                       |
+| A09 | Operator controls             | Confirmed pause blocks new orders/fills but permits cancellation. Suspension blocks trading and revokes access, with remaining orders canceled and existing fills preserved                                                      |
+| A10 | Simulator lifecycle           | Both simulator accounts obey ordinary rules; stop fences queued work and cancels their orders. Inventory/shortfalls and pending cleanup are visible. Grants require a healthy pause; retries and restart never duplicate funding |
+| A11 | Session rollover              | Starting a new session archives complete prior history, retains accounts/restrictions, allocates new funds once, and leaves the new session paused. Old-session requests cannot affect it                                        |
+| A12 | Market truth                  | Candles and volume come from internal executions; the empty market contains no fabricated trade history. All funds and sessions are labeled simulated                                                                            |
+| A13 | Explainability and export     | An operator and trader can trace A03/A04 through order detail, fees, released reservations, final balances, and correctly scoped export files                                                                                    |
+| A14 | Developer onboarding          | Documented API examples can read a market, place a limit order, inspect it, and cancel its remainder under the same rules as the interface                                                                                       |
+| A15 | Fault and rollover boundaries | An unresolved accounting fault blocks grants and session rollover. Enrollment or reinstatement during rollover cannot cause duplicate or missing allocations. Access revocation remains available during a fault                 |
+| A16 | Coherent live export          | All exported datasets share a recorded as-of boundary; their balances, reservations, fills, grants, and fees reconcile while later trades remain outside that export                                                             |
 
-A03 and A04 are isolated examples with fresh starting allocations, no other trades or grants, and the bot stopped. These fixture prices make the arithmetic inspectable; they are not a real-market quote.
+A03 and A04 are isolated examples with fresh starting allocations, no other trades or grants, and the simulator stopped. These fixture prices make the arithmetic inspectable; they are not a real-market quote.
 
 ## Explicit exclusions
 
