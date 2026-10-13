@@ -69,6 +69,8 @@ export interface Snapshot {
 
 /** Failure injection at transaction boundaries; never supplied by a remote caller. */
 export interface ExchangeOptions {
+  /** HTTP may start in inspection mode; financial admission remains gated. */
+  allowFaultedStartup?: boolean;
   hooks?: {
     beforeCommit?: (commandId: string) => Promise<void>;
     afterCommit?: (commandId: string) => Promise<void>;

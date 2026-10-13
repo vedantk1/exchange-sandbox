@@ -12,3 +12,4 @@ onlyBuiltDependencies:
   - '@embedded-postgres/windows-x64'
   - embedded-postgres
   - esbuild
+  - argon2

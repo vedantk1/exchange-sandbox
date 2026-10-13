@@ -29,7 +29,7 @@ export interface Database {
   };
   accounts: {
     id: string;
-    kind: 'TRADER' | 'FEE' | 'ISSUANCE';
+    kind: 'TRADER' | 'ADMIN' | 'FEE' | 'ISSUANCE';
     label: string;
     created_at: Timestamp;
   };
@@ -114,5 +114,66 @@ export interface Database {
   schema_migrations: {
     name: string;
     applied_at: Timestamp;
+  };
+  users: {
+    account_id: string;
+    role: 'ADMIN' | 'TRADER';
+    handle: string;
+    password_hash: string;
+    status: Generated<'ACTIVE' | 'SUSPENDED'>;
+    suspension_reason: string | null;
+    pending_cancellation: Generated<boolean>;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+  };
+  login_sessions: {
+    token_hash: string;
+    account_id: string;
+    csrf_hash: string;
+    expires_at: Timestamp;
+    revoked_at: Date | null;
+    created_at: Timestamp;
+  };
+  invitations: {
+    id: string;
+    token_hash: string;
+    created_by: string;
+    expires_at: Timestamp;
+    revoked_at: Date | null;
+    redeemed_at: Date | null;
+    redeemed_by: string | null;
+    created_at: Timestamp;
+  };
+  recovery_tokens: {
+    id: string;
+    token_hash: string;
+    account_id: string;
+    created_by: string;
+    expires_at: Timestamp;
+    used_at: Date | null;
+    revoked_at: Date | null;
+    created_at: Timestamp;
+  };
+  admin_audit: {
+    id: string;
+    actor_id: string;
+    command_id: string;
+    session_id: string | null;
+    action: string;
+    target_id: string | null;
+    reason: string;
+    result: JsonObject;
+    created_at: Timestamp;
+  };
+  grants: {
+    id: string;
+    session_id: string;
+    account_id: string;
+    actor_id: string;
+    command_id: string;
+    asset: Asset;
+    amount: ExactInteger;
+    reason: string;
+    created_at: Timestamp;
   };
 }

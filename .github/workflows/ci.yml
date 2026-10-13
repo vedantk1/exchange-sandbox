@@ -1,4 +1,4 @@
-name: Verify exchange core
+name: Verify exchange backend
 
 on:
   push:

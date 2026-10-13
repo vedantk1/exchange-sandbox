@@ -1,8 +1,12 @@
 import { sql, type Kysely } from 'kysely';
 import { INITIAL_SCHEMA } from './schema.js';
+import { IDENTITY_SCHEMA } from './identity-schema.js';
 import type { Database } from './types.js';
 
-const migrations = [{ name: '001_exchange_core', statement: INITIAL_SCHEMA }];
+const migrations = [
+  { name: '001_exchange_core', statement: INITIAL_SCHEMA },
+  { name: '002_identity_and_controls', statement: IDENTITY_SCHEMA },
+];
 
 /** Migrations and their metadata commit together, under a transaction-held lock. */
 export async function migrate(database: Kysely<Database>): Promise<void> {

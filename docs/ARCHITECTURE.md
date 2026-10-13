@@ -1,6 +1,6 @@
 # System architecture and stack
 
-Status: accepted architecture and TypeScript stack, based on the accepted [MVP](MVP.md). Milestone 1 implements the headless trading core, PostgreSQL persistence, and recovery checks. HTTP, authentication, UI, operational workflows, deployment, and performance acceptance remain future work. Exact installed dependencies are pinned in the manifests and lockfile. See [development and validation](DEVELOPMENT.md) for runnable commands and the implemented boundary.
+Status: accepted architecture and TypeScript stack, based on the accepted [MVP](MVP.md). Milestones 1 and 2 implement the trading core, PostgreSQL persistence/recovery, invitation-only authentication, trader/admin HTTP routes, and audited controls. UI, bot operation, session rollover, protected market orders, live delivery, deployment, and performance acceptance remain future work. Exact dependencies are pinned in the manifests and lockfile. See [development and validation](DEVELOPMENT.md) and the [HTTP API](API.md) for the implemented boundary.
 
 Use a modular TypeScript application, a React interface, and PostgreSQL as the authoritative store. The full MVP will use ordinary HTTP commands and queries and server-sent events for live updates. The implemented core uses exact integer arithmetic and one serialized database transaction for each exchange command. The initial deployment has one application process and one database.
 
@@ -124,7 +124,7 @@ For a normal order command:
 
 Business rejection and a failed transaction are different. Before commit, a crash leaves no accepted trade. After commit but before the response, a retry with the same identity retrieves the result. Network delivery is not exactly once; the persisted effect is idempotent for that identity. A missing receipt during an unresolved request is not proof that the original command has finished failing.
 
-Keep transactions free of network calls, password hashing, browser interaction, or outbound event delivery. Use deterministic lock ordering after the control row. Limit lock wait and request backlog; overload fails explicitly and does not leave a hidden order scheduled for much later. A canceled request waiting for admission must not continue into an order unnoticed; once admission begins, resolve through its receipt.
+Keep transactions free of network calls, password hashing, browser interaction, or outbound event delivery. Use deterministic lock ordering after the control row. Limit lock wait and request backlog; overload fails explicitly and does not leave a hidden order scheduled for much later. An observed disconnect or expired admission deadline while waiting must prevent a later mutation. After admission, or when a transport loss has not yet been observed by the server, resolve the uncertain result through the original command receipt.
 
 The open book initially comes from indexed order rows rather than an authoritative in-memory tree. Index session, side, status, price, and acceptance sequence. Any read cache is disposable and must not decide fills. This reduces recovery complexity, while accepting database work on the execution path.
 
@@ -150,7 +150,9 @@ Price guards also use integer division with the specified floor/ceiling. Chart c
 
 Store atom values as PostgreSQL NUMERIC(38,0), with checked string parsing and representable-range validation before persistence. Add database constraints for valid signs, integer values, uniqueness, and participant balances. PostgreSQL can round values to a declared numeric scale; database coercion must not substitute for the product requirement to reject excess input precision. [PostgreSQL numeric types](https://www.postgresql.org/docs/current/datatype-numeric.html)
 
-Milestone 1 caps an order at 100 BTC-SIM and a price at 100,000,000 USD-SIM per BTC-SIM. Decimal input strings are at most 64 characters, with no whitespace, sign, exponent, or excess precision. Quote atoms fit within NUMERIC(38,0); the largest individual order reservation is 10,010,000,000,000,000,000 atoms, well below that limit. Invalid quantity/price syntax or bounds raise INVALID_QUANTITY / INVALID_PRICE before persistence; a submitted notional below 1 USD-SIM produces a durable ORDER_TOO_SMALL rejection. The 50-resting-order-per-trader admission limit produces OPEN_ORDER_LIMIT. Malformed UUIDs raise INVALID_ID. These are engineering bounds, not claims of realistic market pricing or measured capacity. Grants, aggregate installation/history limits, transport body limits, and export limits still need explicit contracts before those features ship.
+Milestone 1 caps an order at 100 BTC-SIM and a price at 100,000,000 USD-SIM per BTC-SIM. Decimal input strings are at most 64 characters, with no whitespace, sign, exponent, or excess precision. Quote atoms fit within NUMERIC(38,0); the largest individual order reservation is 10,010,000,000,000,000,000 atoms, well below that limit. Invalid quantity/price syntax or bounds raise INVALID_QUANTITY / INVALID_PRICE before persistence; a submitted notional below 1 USD-SIM produces a durable ORDER_TOO_SMALL rejection. The 50-resting-order-per-trader admission limit produces OPEN_ORDER_LIMIT. Malformed UUIDs raise INVALID_ID. These are engineering bounds, not claims of realistic market pricing or measured capacity.
+
+Milestone 2 caps an individual grant at 100 BTC-SIM or 10,000,000 USD-SIM, accepts request bodies up to 16 KiB, and bounds inspection history as described in the [API guide](API.md). Aggregate installation/history retention and export limits still need explicit contracts before those features ship.
 
 Use an append-only double-entry journal balanced separately for each asset. Transfers between available and reserved buckets explain reservations. Trades transfer base and quote assets, with fees going to the system fee account. Grants credit a participant against an explicit virtual-issuance control account; that bookkeeping offset is not a spendable negative customer balance.
 
@@ -222,6 +224,8 @@ Each command carries its expected session and, where relevant, a control/bot gen
 
 Use established Argon2id password hashing with measured parameters and resource limits. Use opaque random authentication tokens, hashed identifiers at rest, and PostgreSQL session records. Browser cookies are HttpOnly, Secure when served over HTTPS, and SameSite with explicit CSRF/origin checks. Local loopback development is a documented cookie/TLS exception, not the public-hosting configuration. [OWASP password storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html), [session management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
 
+The prototype uses Argon2id with 64 MiB memory, three iterations, and parallelism one. A process-wide cap of four simultaneous password operations bounds hashing memory; excess work fails explicitly. Deployment-specific load and latency measurements remain required before tuning or publishing capacity claims.
+
 Fastify session/cookie components can supply the HTTP plumbing with a PostgreSQL store adapter; do not use the plugin's default in-memory session store. The application must still own transactional revocation and verify username-only flows. Do not invent fake email addresses to satisfy a framework. Long-lived self-contained JWTs add little when immediate server-side revocation is already required. [Fastify session store interface](https://github.com/fastify/session)
 
 Invitations and recovery tokens are random, hashed, expiring, and atomically single-use. Their plaintext forms are shown only for the required handoff and redacted from logs/exports. Password changes rotate/revoke the required sessions. Invitation redemption and its initial allocation resolve within the same admission boundary, with expensive password hashing performed outside the lock and validity rechecked inside it.
@@ -240,7 +244,7 @@ Use reviewed explicit migrations under a migration lock. Refuse an incompatible/
 
 Structured logs should identify request, command, exchange session, sequence, and outcome while redacting credentials, cookies, invitation links, recovery links, and private payloads. Collect command latency, lock waits, failed invariants, rejected commands, recovery state, SSE reconnects, and bot inventory conditions. Expose liveness separately from readiness; a recovering service can be alive without being ready to trade.
 
-Development uses PostgreSQL in Compose, Vite's development server, and a backend watch process bound to loopback by default. The release installation uses one app container and PostgreSQL with durable storage; exposing it beyond localhost needs documented TLS/reverse-proxy settings, including SSE buffering/timeouts. No hosted authentication, monitoring, or email account is necessary.
+Development currently uses bundled PostgreSQL and a backend watch process bound to loopback by default; an existing PostgreSQL instance is also supported. Vite's development server and a Compose deployment remain later work. The release installation will use one app container and PostgreSQL with durable storage; exposing it beyond localhost needs documented TLS/reverse-proxy settings, including SSE buffering/timeouts. No hosted authentication, monitoring, or email account is necessary.
 
 ## Validation and delivery order
 
@@ -259,9 +263,9 @@ An initial performance-validation workload is 20 connected traders, up to 1,000 
 
 Implementation order:
 
-1. Exact domain values, matching/accounting rules, and technical numeric bounds — implemented. HTTP contract schemas remain part of the API milestone.
+1. Exact domain values, matching/accounting rules, and technical numeric bounds — implemented.
 2. PostgreSQL schema and transactional vertical slice proving the MVP partial-fill/cancel example, duplicate-command recovery, and invariant checks — implemented; see the development guide for test evidence and limitations.
-3. Invitations/authentication and administrator gates, grants, bot control, rollover, and recovery cases.
+3. Invitations/authentication, HTTP contracts, administrator gates, grants, and access-recovery cases — implemented. Bot control and session rollover remain separate increments; their accepted behavior above is unchanged.
 4. Trader/admin UI, protected previews, live synchronization, and explainable history.
 5. Exports, self-host setup, restore drill, full browser acceptance, and measured workload validation.
 

@@ -15,7 +15,10 @@
     "test:integration": "tsx scripts/with-postgres.ts test",
     "test:integration:external": "vitest run --config vitest.integration.config.ts",
     "demo": "tsx scripts/with-postgres.ts demo",
-    "check": "pnpm typecheck && pnpm format:check && pnpm test && pnpm test:integration"
+    "check": "pnpm typecheck && pnpm format:check && pnpm test && pnpm test:integration",
+    "dev": "tsx scripts/with-postgres.ts dev",
+    "admin:setup": "tsx scripts/with-postgres.ts setup",
+    "admin:reset": "tsx scripts/with-postgres.ts reset"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

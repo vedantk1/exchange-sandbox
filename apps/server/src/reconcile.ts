@@ -81,6 +81,8 @@ export async function reconcileDatabase(
           union all
           select session_id, account_id, 'USD-SIM', 100000000000000::numeric from allocations
           union all
+          select session_id, account_id, asset, amount from grants
+          union all
           select f.session_id, o.account_id, 'BTC-SIM', f.quantity
             from fills f join orders o on o.id = f.buy_order_id
           union all
@@ -224,6 +226,72 @@ export async function reconcileDatabase(
         select b.session_id::text || '/' || b.asset || '/' || b.bucket as detail
         from balances b join accounts a on a.id = b.account_id
         where a.kind = 'FEE' and (b.asset <> 'USD-SIM' or b.bucket <> 'AVAILABLE') and b.amount <> 0
+      `,
+    },
+    {
+      code: 'GRANT_JOURNAL',
+      query: sql`
+        select g.id::text as detail from grants g
+        join users recipient on recipient.account_id = g.account_id
+        join users actor on actor.account_id = g.actor_id
+        where recipient.role <> 'TRADER' or actor.role <> 'ADMIN' or not exists (
+          select j.id from journal_transactions j
+          join journal_entries e on e.journal_transaction_id = j.id
+          join accounts owner on owner.id = e.account_id
+          where j.session_id = g.session_id and j.command_id = g.command_id and j.kind = 'GRANT'
+          group by j.id
+          having count(*) = 2 and
+            coalesce(sum(e.amount) filter (where e.account_id = g.account_id
+              and e.asset = g.asset and e.bucket = 'AVAILABLE'), 0) = g.amount
+            and coalesce(sum(e.amount) filter (where owner.kind = 'ISSUANCE'
+              and e.asset = g.asset and e.bucket = 'AVAILABLE'), 0) = -g.amount
+        )
+      `,
+    },
+    {
+      code: 'ISSUANCE_TOTAL',
+      query: sql`
+        with issued as (
+          select session_id, 'BTC-SIM' as asset, -10000::numeric as amount from allocations
+          union all
+          select session_id, 'USD-SIM', -100000000000000::numeric from allocations
+          union all
+          select session_id, asset, -amount from grants
+        ), expected as (
+          select session_id, asset, sum(amount) as amount from issued group by session_id, asset
+        ), actual as (
+          select b.session_id, b.asset, sum(b.amount) as amount from balances b
+          join accounts a on a.id = b.account_id where a.kind = 'ISSUANCE'
+          group by b.session_id, b.asset
+        )
+        select coalesce(e.session_id, a.session_id)::text || '/' || coalesce(e.asset, a.asset) as detail
+        from expected e full outer join actual a using (session_id, asset)
+        where coalesce(e.amount, 0) <> coalesce(a.amount, 0)
+        union all
+        select b.session_id::text || '/' || b.asset || '/RESERVED' as detail from balances b
+        join accounts a on a.id = b.account_id
+        where a.kind = 'ISSUANCE' and b.bucket = 'RESERVED' and b.amount <> 0
+      `,
+    },
+    {
+      code: 'ADMINISTRATOR_ISOLATION',
+      query: sql`
+        select a.id::text as detail from accounts a where a.kind = 'ADMIN' and (
+          exists (select 1 from balances b where b.account_id = a.id)
+          or exists (select 1 from orders o where o.account_id = a.id)
+          or exists (select 1 from allocations l where l.account_id = a.id)
+          or exists (select 1 from journal_entries e where e.account_id = a.id)
+        )
+      `,
+    },
+    {
+      code: 'SUSPENSION_CANCELLATION',
+      query: sql`
+        select u.account_id::text as detail from users u
+        where u.status = 'SUSPENDED' and not u.pending_cancellation and exists (
+          select 1 from orders o where o.account_id = u.account_id
+            and o.status in ('OPEN', 'PARTIALLY_FILLED')
+        )
       `,
     },
     {
