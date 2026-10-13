@@ -1,0 +1,34 @@
+import { sql, type Kysely } from 'kysely';
+import { INITIAL_SCHEMA } from './schema.js';
+import type { Database } from './types.js';
+
+const migrations = [{ name: '001_exchange_core', statement: INITIAL_SCHEMA }];
+
+/** Migrations and their metadata commit together, under a transaction-held lock. */
+export async function migrate(database: Kysely<Database>): Promise<void> {
+  await database.transaction().execute(async (transaction) => {
+    await sql`select pg_advisory_xact_lock(482901, 1)`.execute(transaction);
+    await sql`
+      create table if not exists schema_migrations (
+        name text primary key,
+        applied_at timestamptz not null default current_timestamp
+      )
+    `.execute(transaction);
+    const applied = await transaction.selectFrom('schema_migrations').select('name').execute();
+    const names = new Set(applied.map(({ name }) => name));
+    for (const name of names) {
+      if (!migrations.some((migration) => migration.name === name)) {
+        throw new Error(`Database has unsupported migration: ${name}`);
+      }
+    }
+    for (const migration of migrations) {
+      if (!names.has(migration.name)) {
+        await sql.raw(migration.statement).execute(transaction);
+        await transaction
+          .insertInto('schema_migrations')
+          .values({ name: migration.name })
+          .execute();
+      }
+    }
+  });
+}

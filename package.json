@@ -1,0 +1,31 @@
+{
+  "name": "exchange-sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.22.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --config vitest.config.ts",
+    "test:integration": "tsx scripts/with-postgres.ts test",
+    "test:integration:external": "vitest run --config vitest.integration.config.ts",
+    "demo": "tsx scripts/with-postgres.ts demo",
+    "check": "pnpm typecheck && pnpm format:check && pnpm test && pnpm test:integration"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/pg": "8.23.1",
+    "embedded-postgres": "18.4.0-beta.17",
+    "fast-check": "4.10.2",
+    "pg": "8.23.1",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "5.0.4"
+  }
+}
