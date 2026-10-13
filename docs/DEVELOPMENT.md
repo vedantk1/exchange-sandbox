@@ -2,13 +2,13 @@
 
 ## Current milestone
 
-Milestone 1 established matching, accounting, and recovery. Milestone 2 added invitations, authentication, a Fastify HTTP API, and audited administrator controls. Milestone 3 added the React trader and administrator workspaces, exact order/balance/history views, and live synchronization. The current increment adds an opt-in development market simulator and clearer sparse-chart states. The [MVP](MVP.md) remains the full product specification; [architecture](ARCHITECTURE.md) records the implementation direction and [API documentation](API.md) describes the implemented routes.
+Milestone 1 established matching, accounting, and recovery. Milestone 2 added invitations, authentication, a Fastify HTTP API, and audited administrator controls. Milestone 3 added the React trader and administrator workspaces, exact order/balance/history views, and live synchronization. The current increment adds administrator start/stop, inventory visibility, and audited funding for the two-account simulator, plus browser regression tests in CI. The [MVP](MVP.md) remains the full product specification; [architecture](ARCHITECTURE.md) records the implementation direction and [API documentation](API.md) describes the implemented routes.
 
 The HTTP adapter derives account identity from an opaque login cookie, validates strict request schemas, and checks role and ownership. Financial and access mutations recheck authorization under the same installation lock. Internal TypeScript methods remain trusted module interfaces; caller-supplied account IDs alone are never authentication. The React client shares transport types and uses decimal strings for financial labels and exact integer arithmetic for previews.
 
 HTTP admission has a bounded active-request count and deadline. The control lock has a bounded wait. An observed disconnect before admission prevents a later mutation; an admitted command finishes atomically and is resolved through its original receipt. The [API guide](API.md) documents the prototype limits and the distinction between an observed disconnect and an uncertain client-side timeout.
 
-Local administrator setup starts paused and supplies no administrator balance. The isolated matching demo still uses its separate developer fixture, which starts trading directly. Protected market orders, administrator-operated liquidity-bot controls, session rollover, exports, and a separate restricted application database role remain later milestones. The current publisher reads committed outbox positions and sends authorized snapshot invalidations; it does not send financial deltas or token secrets.
+Local administrator setup starts paused and supplies no administrator balance. The isolated matching demo still uses its separate developer fixture, which starts trading directly. Protected market orders, session rollover, exports, and a separate restricted application database role remain later milestones. The current publisher reads committed outbox positions and sends authorized snapshot invalidations; it does not send financial deltas or token secrets.
 
 ## Prerequisites and setup
 
@@ -44,35 +44,53 @@ The bundled PostgreSQL dependency supplies platform-specific binaries, so no Doc
 
 ## Commands
 
-| Command                          | Purpose                                                                                           |
-| -------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `pnpm demo`                      | Run the controlled scenario against temporary PostgreSQL, or `DATABASE_URL` when supplied         |
-| `pnpm dev`                       | Start Vite and the API in development/watch mode against persistent PostgreSQL or `DATABASE_URL`  |
-| `pnpm dev:market`                | Start the same development stack with ongoing, explicitly synthetic market activity               |
-| `pnpm admin:setup`               | Create the single administrator through an interactive local prompt                               |
-| `pnpm admin:reset`               | Recover administrator access and revoke its existing sessions                                     |
-| `pnpm typecheck`                 | Check all workspace TypeScript, including tests and developer scripts                             |
-| `pnpm format:check`              | Check repository formatting                                                                       |
-| `pnpm format`                    | Apply formatting                                                                                  |
-| `pnpm test`                      | Run domain examples/property tests and browser command-recovery/arithmetic tests                  |
-| `pnpm test:integration`          | Start temporary PostgreSQL and run integration tests, or use `TEST_DATABASE_URL`                  |
-| `pnpm test:integration:external` | Run integration tests directly against an already configured `TEST_DATABASE_URL`                  |
-| `pnpm check`                     | Run type checking, formatting, domain/client tests, PostgreSQL integration, and the browser build |
-| `pnpm build:web`                 | Check the browser production bundle without starting a production server                          |
+| Command                          | Purpose                                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `pnpm demo`                      | Run the controlled scenario against temporary PostgreSQL, or `DATABASE_URL` when supplied        |
+| `pnpm dev`                       | Start Vite and the API in development/watch mode against persistent PostgreSQL or `DATABASE_URL` |
+| `pnpm admin:setup`               | Create the single administrator through an interactive local prompt                              |
+| `pnpm admin:reset`               | Recover administrator access and revoke its existing sessions                                    |
+| `pnpm typecheck`                 | Check all workspace TypeScript, including tests and developer scripts                            |
+| `pnpm format:check`              | Check repository formatting                                                                      |
+| `pnpm format`                    | Apply formatting                                                                                 |
+| `pnpm test`                      | Run domain examples/property tests and browser command-recovery/arithmetic tests                 |
+| `pnpm test:integration`          | Start temporary PostgreSQL and run integration tests, or use `TEST_DATABASE_URL`                 |
+| `pnpm test:integration:external` | Run integration tests directly against an already configured `TEST_DATABASE_URL`                 |
+| `pnpm test:browser`              | Run Chromium workflows against a disposable PostgreSQL cluster, or `TEST_DATABASE_URL`           |
+| `pnpm test:browser:external`     | Run browser workflows against a dedicated existing `TEST_DATABASE_URL`                           |
+| `pnpm check`                     | Run type checking, formatting, unit/integration/browser tests, and the browser build             |
+| `pnpm build:web`                 | Check the browser production bundle without starting a production server                         |
 
 Local iteration uses development/watch mode. `API_ORIGIN` selects the exact permitted origin; mutating requests must send it in the Origin header. Secure cookies require an HTTPS origin; the HTTP exception is limited to loopback. The default listener is loopback. TLS termination, proxy deployment, and remote installation have not been validated as a release configuration.
 
-## Development demo market
+## Market simulator
 
-After local administrator setup, run `pnpm dev:market`, sign in, and resume the market if it is paused. This starts the normal Vite/API development stack with `DEMO_MARKET=1`. It requires `NODE_ENV=development` and a loopback API listener; startup rejects other deployment settings and flag values other than `0` or `1`. Plain `pnpm dev` leaves the simulator disabled unless the calling environment explicitly sets `DEMO_MARKET=1`. Stop the current runner before switching modes. To override an inherited enable flag, use `DEMO_MARKET=0 pnpm dev`.
+Run `pnpm dev`, sign in as the administrator, and choose **Start simulator** in the overview. Confirm with a reason. First start creates two non-login accounts and issues each the ordinary one-time allocation of 1 BTC-SIM and 100,000 USD-SIM; later starts preserve the existing accounts and balances. Start can arm the simulator while paused. Resume trading to admit its orders. The earlier `dev:market` command and `DEMO_MARKET` environment switch have been removed; administrator intent stored in PostgreSQL is authoritative.
 
-On its first healthy trading cycle in the session, the simulator creates two non-login trading accounts, each receiving the standard one-time allocation of 1 BTC-SIM and 100,000 USD-SIM. They share the existing book with human participants. Their orders can fill human orders, so enabling the simulator changes actual sandbox balances and history. Restarting never refills the accounts or erases executions. The administrator overview identifies both accounts for balance/order/activity inspection; they are excluded from the login participant list and participant counts. Starting, stopping, and automatic refilling are not administrator HTTP or browser controls in this increment.
+The maker and taker share the book with people and can change their sandbox balances through ordinary fills. They are excluded from human participant counts. Each cycle cancels their remaining orders, requests two maker bids and asks of 0.0200 BTC-SIM at offsets of 10 and 30 USD-SIM, and submits one 0.0010 BTC-SIM taker order. The fictional reference starts at 50,000 and moves within 48,000–52,000. The taker buys when its total BTC inventory is at or below 1 BTC-SIM, otherwise sells. Cycles wait four seconds after the previous work settles. This is not a fill or timing guarantee.
 
-Each cycle cancels the simulator's remaining orders and requests two bids and two asks of 0.0200 BTC-SIM each, at 10 and 30 USD-SIM either side of a fictional reference price. The reference starts at 50,000 and follows a bounded integer-cent walk between 48,000 and 52,000. A separate taker submits a 0.0010 BTC-SIM crossing limit order, choosing its side to bring its BTC inventory toward the starting allocation. The next cycle runs four seconds after the previous cycle settles; this is not a guaranteed execution cadence. Quotes obey ordinary price/time matching, self-trade prevention, exact reservations, 0.1 percent fees, and order limits. Insufficient funds produce a visible limited-inventory condition; no borrowing or automatic issuance occurs.
+The overview shows exact available/reserved balances and per-order funding shortfalls. The preview includes buy fees, budgets total inventory after releasing previous reservations, and assumes no sale proceeds. Its stored reference may differ from the next cycle's price. Inspect either account for orders, fills, grants, and journal activity. To add inventory, pause a healthy market, choose **Fund demo maker** or **Fund demo taker**, review the exact before/after balance and issuance, and confirm a reason. Grants have the same precision, per-grant limits, journal entries, and replay protection as human funding. Funding never starts the worker. There is no automatic refill.
 
-The service persists each cycle's commands and progress before dispatch. After a process interruption, it resolves unfinished work using the same command identities, then continues from PostgreSQL state. An operator pause freezes new simulator work and retains open orders; resume allows progress again. An accounting fault blocks financial work. Normal shutdown stops scheduling and cancels only the simulator accounts' remaining orders. Starting in disabled mode also attempts that cleanup, including after an interrupted prior process. Completed fills and human resting orders are preserved. If a fault prevents cleanup, status remains Error and remaining orders stay inspectable. After the underlying fault is resolved, administrator resume cancels disabled simulator orders and reconciles again before reopening trading.
+Pause preserves simulator intent and resting orders. **Stop simulator** disables new work and cancels only the two automated accounts' remaining orders, preserving human orders and completed trades. Its generation fence prevents queued work from an earlier run executing after stop or a later start. A fault can leave `STOPPING`: intent is disabled but financial cleanup is pending. Inspect and resolve the underlying fault, then reconcile/resume; resume completes cleanup and reconciles again before reopening trading. Start remains blocked while cleanup is pending.
 
-Charts use actual execution timestamps and complete one-minute UTC buckets. There is no instant historical seed, accelerated clock, or external price feed. Multiple trades in one minute update one candle; a completely flat candle is valid when prices are unchanged. The chart explains zero executions and the first four populated minutes without covering existing candles. Allow several real minutes for useful history. This development demonstration is separate from the planned administrator-operated single quoting bot in the full [MVP](MVP.md#liquidity-bot-planned-full-mvp-flow).
+Normal process shutdown drains the worker without changing the administrator's enabled setting or canceling its orders. Restart reconciles, resolves an unfinished plan using original command identities, and continues only if enabled and trading is healthy. A stopped simulator remains stopped. Running indicates persisted intent/state, not a separate worker health probe; the visible timestamp is the last persisted change.
+
+Charts use real execution timestamps and one-minute UTC buckets. There is no historical seed, accelerated clock, or external price feed. Multiple trades in one minute update one candle, and flat candles are valid. Empty/sparse chart explanations remain visible alongside real data. Allow several minutes for useful history.
+
+## Automated browser checks
+
+Install the pinned Chromium binary once, then run the suite:
+
+```sh
+pnpm exec playwright install chromium
+pnpm test:browser
+```
+
+On Linux, `pnpm exec playwright install --with-deps chromium` also installs browser system dependencies. Browser tests use actual React pages, Fastify, and PostgreSQL. The harness starts Vite in development mode on a free port, gives each test a generated schema and fresh browser context, and cleans up its own processes/schema. It never connects to the persistent development cluster or ports 3000/3001. Set `TEST_DATABASE_URL` only to a dedicated test database. Integration and browser suites must run sequentially if they share a PostgreSQL server because the writer guard is installation-wide.
+
+Coverage includes invitation redemption/login, exact partial-fill/cancellation balances and history, reconnect after offline state, a committed response loss followed by same-command retry after reload, and simulator start/stop/inventory/funding with pause/resume. Simulator ticks in browser tests are invoked deterministically through the real scheduler after the administrator enables it; timer/restart/race behavior is covered separately in integration tests.
+
+Failures retain screenshots and traces under `output/playwright/ci/`, ignored by Git. CI runs Chromium against its PostgreSQL service and uploads failure artifacts for seven days. Artifacts contain only isolated test accounts and virtual funds. Use `pnpm exec playwright show-trace <trace-path>` to inspect a failure. Browser flags/filters pass through, for example `pnpm test:browser --grep simulator`. These are selected regression workflows, not complete full-MVP acceptance or cross-browser certification.
 
 ## Browser workflows and live state
 
@@ -94,7 +112,7 @@ Use a dedicated development database for the demo. Its migrations create the exc
 
 Tests create a uniquely named exchange test schema for each case using the supplied database connection. They drop only those generated schemas during cleanup. The test database role needs permission to create schemas, tables, functions, and triggers. Existing unrelated schemas are not reset or truncated. A test process killed outside normal cleanup can leave a generated test schema behind.
 
-Integration tests deliberately use database-owner privileges for corruption probes. That establishes what recovery detects; it is not evidence of tamper resistance against the database owner. The future deployment design separates migration ownership and application permissions. Migrations `002_identity_and_controls` and `003_demo_market` extend existing installations without rewriting migration 001 or issuing new allocations to existing traders. Migration 003 creates only simulator metadata; accounts and initial allocations are created only on its first enabled, healthy trading cycle. Legacy developer-only accounts do not acquire login credentials automatically.
+Integration tests deliberately use database-owner privileges for corruption probes. That establishes what recovery detects; it is not evidence of tamper resistance against the database owner. The future deployment design separates migration ownership and application permissions. Migrations 002–004 extend existing installations without rewriting earlier migrations or issuing new allocations to existing traders. Migration 003 adds simulator metadata; migration 004 adds the generation, pending-cleanup state, and registered simulator grant recipients. Existing intent, plans, accounts, and history survive the upgrade. New simulator accounts/allocations are created only on an explicit first administrator start. Legacy developer-only accounts do not acquire login credentials automatically.
 
 ## Core API
 
@@ -134,6 +152,7 @@ A runtime accounting invariant failure rolls back financial effects to a savepoi
 | `packages/domain/test/`     | Focused domain examples and generated properties                                         |
 | `apps/web/src/**/*.test.ts` | Browser request identity/recovery and exact preview arithmetic tests                     |
 | `tests/integration/`        | Real database concurrency, integrity, and process-loss tests                             |
+| `tests/browser/`            | Playwright trader/admin regressions and isolated development-server fixture              |
 | `tests/helpers/`            | Isolated database schemas and the crash-worker harness                                   |
 | `scripts/`                  | Development, owner-command, and temporary PostgreSQL runners                             |
 
@@ -141,20 +160,22 @@ The domain does not open database connections. The service owns the transaction 
 
 ## Evidence and limitations
 
-Local validation uses Node.js 24 and PostgreSQL 18.4. The simulator increment passed 55 domain/property/client tests and 66 PostgreSQL integration tests, plus type checking, formatting, and the production bundle build. Run `pnpm check` for current counts and results. The CI workflow runs the same checks against a PostgreSQL service; no remote CI run has been performed.
+Local validation uses Node.js 24 and PostgreSQL 18.4. This increment passed 57 unit/property/client tests, 77 PostgreSQL integration tests, and four Chromium browser scenarios, plus type checking, formatting, and bundle validation. Run `pnpm check` to repeat the full suite. The CI workflow runs unit, integration, and Chromium browser tests against its PostgreSQL service. No remote CI run has been performed for this increment.
 
-| Suite                                      | Behavior exercised                                                                                                                                                                     |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/domain/test/`                    | Exact parsing and arithmetic; price/time priority; self-trade prevention; generated conservation and fee properties                                                                    |
-| `tests/integration/trading.test.ts`        | MVP partial-fill/cancel balances, price-improvement release, ordering, concurrent reservations, retries, ownership, cancel/fill race, and restart priority                             |
-| `tests/integration/integrity.test.ts`      | Exclusive writer ownership, schema compatibility, journal integrity, nonnegative customer buckets, runtime fault rollback and queued-command refusal, and startup corruption detection |
-| `tests/integration/recovery.test.ts`       | Actual application `SIGKILL` before commit and after commit before acknowledgement; atomic rollback, persisted receipts/outbox, and replay without duplicated effects                  |
-| `tests/integration/api*.test.ts`           | Cookie authentication, CSRF/origin checks, invitation races, account privacy, credential revocation, admin controls, grants, and inspection during faults                              |
-| `tests/integration/admin-recovery.test.ts` | A queued resume observes the fault it actually reconciles; an unpersisted runtime fault stays visible and cannot be cleared by replaying an older receipt                              |
-| `tests/integration/workspace.test.ts`      | Snapshot/cursor consistency during concurrent commits, complete open orders, exact totals beyond the visible fill window, candle aggregation, system-account inspection, and ownership |
-| `tests/integration/demo-market.test.ts`    | Real simulated fills/fees/candles, bounded quotes, pause/fault gates, finite inventory, committed-command replay, disabled restart cleanup, recovery cleanup, and shutdown draining    |
-| `tests/integration/live.test.ts`           | Real SSE listeners, committed replay/reset, authorized filtering, revocation/expiry, stream bounds, shutdown, and fault invalidation without a new event cursor                        |
-| `apps/web/src/**/*.test.ts`                | Exact order preview boundaries, durable request identity, ambiguous responses, safe retries, receipts, and browser storage failures                                                    |
+| Suite                                       | Behavior exercised                                                                                                                                                                                                      |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/domain/test/`                     | Exact parsing and arithmetic; price/time priority; self-trade prevention; generated conservation and fee properties                                                                                                     |
+| `tests/integration/trading.test.ts`         | MVP partial-fill/cancel balances, price-improvement release, ordering, concurrent reservations, retries, ownership, cancel/fill race, and restart priority                                                              |
+| `tests/integration/integrity.test.ts`       | Exclusive writer ownership, schema compatibility, journal integrity, nonnegative customer buckets, runtime fault rollback and queued-command refusal, and startup corruption detection                                  |
+| `tests/integration/recovery.test.ts`        | Actual application `SIGKILL` before commit and after commit before acknowledgement; atomic rollback, persisted receipts/outbox, and replay without duplicated effects                                                   |
+| `tests/integration/api*.test.ts`            | Cookie authentication, CSRF/origin checks, invitation races, account privacy, credential revocation, admin controls, grants, and inspection during faults                                                               |
+| `tests/integration/admin-recovery.test.ts`  | A queued resume observes the fault it actually reconciles; an unpersisted runtime fault stays visible and cannot be cleared by replaying an older receipt                                                               |
+| `tests/integration/workspace.test.ts`       | Snapshot/cursor consistency during concurrent commits, complete open orders, exact totals beyond the visible fill window, candle aggregation, system-account inspection, and ownership                                  |
+| `tests/integration/demo-market.test.ts`     | Real simulated fills/fees/candles, bounded quotes, pause/fault gates, finite inventory, committed-command replay, generation-fenced stop/start races, preserved restart intent, recovery cleanup, and shutdown draining |
+| `tests/integration/simulator-admin.test.ts` | Authorized lifecycle commands, once-only allocation, scoped cancellation, fault-safe cleanup, audited grants, replay and recipient restrictions                                                                         |
+| `tests/browser/exchange.spec.ts`            | Invitation/login, partial fills/cancellation, exact balances/history, offline recovery, lost acknowledgement retry, admin simulator/funding                                                                             |
+| `tests/integration/live.test.ts`            | Real SSE listeners, committed replay/reset, authorized filtering, revocation/expiry, stream bounds, shutdown, and fault invalidation without a new event cursor                                                         |
+| `apps/web/src/**/*.test.ts`                 | Exact order preview boundaries, durable request identity, ambiguous responses, safe retries, receipts, and browser storage failures                                                                                     |
 
 The process-loss suite uses a separate operating-system process and real PostgreSQL transactions. It does not simulate PostgreSQL losing durable storage, an operating-system power failure, or recovery from a backup. Those are different operational guarantees.
 
@@ -162,7 +183,7 @@ Most API tests use Fastify request injection with real PostgreSQL. Admission and
 
 Manual Chromium checks through the real development UI covered sign-in, a 0.4 BTC-SIM limit order filling 0.3 with a 15 USD-SIM fee, live pause propagation, cancellation while paused, and bulk cancellation of the reviewed open-order snapshot. They also covered password rotation while retaining the current browser session, offline submission gating and reconnect refresh, and an intentionally lost committed response plus failed receipt read: reloading retained the command identity, resolved its receipt, and cleared the pending record. Disabled browser storage kept reads available while visibly blocking commands. Dialog Escape restored focus, and trader/admin views at 390 px avoided body overflow while wide tables scrolled internally.
 
-Administrator checks covered invitation creation/copy/revocation, an exact 0.000000001 USD-SIM grant and its journal entry, suspension/reinstatement without repeated funding, administrative cancellation with its recorded reason and exact reservation release, reconciliation, and audit history. Separate browser sessions redeemed an invitation, received the exact initial allocation, and completed password recovery while preserving existing balances. Both flows removed token fragments from the address bar, including a new handoff opened within the existing page. These are local manual checks, not a committed browser regression suite or full MVP acceptance.
+Administrator checks covered invitation creation/copy/revocation, an exact 0.000000001 USD-SIM grant and its journal entry, suspension/reinstatement without repeated funding, administrative cancellation with its recorded reason and exact reservation release, reconciliation, and audit history. Separate browser sessions redeemed an invitation, received the exact initial allocation, and completed password recovery while preserving existing balances. Both flows removed token fragments from the address bar, including a new handoff opened within the existing page. These are earlier local manual checks. The committed browser suite now covers the selected workflows listed above; the remaining manual checks are not implied to be automated or full MVP acceptance.
 
 Local smoke checks also started the actual watch-mode HTTP listener, checked its liveness, uninitialized readiness, and rejection of anonymous private reads, then stopped it. The owner setup prompt was checked for hidden password input and cancellation without creating an administrator. The persistent development database reopened successfully between these commands; no default application credentials are installed.
 

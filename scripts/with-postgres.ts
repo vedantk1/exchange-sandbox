@@ -4,17 +4,24 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from '
 import { createServer } from 'node:net';
 import pg from 'pg';
 
-const demoMarket = process.argv[2] === 'dev-market';
-const mode = demoMarket ? 'dev' : process.argv[2];
-if (mode !== 'test' && mode !== 'demo' && mode !== 'dev' && mode !== 'setup' && mode !== 'reset') {
-  throw new Error('Usage: tsx scripts/with-postgres.ts <test|demo|dev|dev-market|setup|reset>');
+const mode = process.argv[2];
+if (
+  mode !== 'test' &&
+  mode !== 'browser' &&
+  mode !== 'demo' &&
+  mode !== 'dev' &&
+  mode !== 'setup' &&
+  mode !== 'reset'
+) {
+  throw new Error('Usage: tsx scripts/with-postgres.ts <test|browser|demo|dev|setup|reset>');
 }
 
 const persistent = mode === 'dev' || mode === 'setup' || mode === 'reset';
 const localDirectory = '.local/development-postgres';
 const metadataPath = '.local/development-database.json';
 
-const connectionVariable = mode === 'test' ? 'TEST_DATABASE_URL' : 'DATABASE_URL';
+const connectionVariable =
+  mode === 'test' || mode === 'browser' ? 'TEST_DATABASE_URL' : 'DATABASE_URL';
 const externalUrl = process.env[connectionVariable];
 let child: ChildProcess | undefined;
 let stopDatabase: (() => Promise<void>) | undefined;
@@ -137,18 +144,19 @@ async function runChild(connectionString: string): Promise<number> {
   const arguments_ =
     mode === 'test'
       ? ['node_modules/vitest/vitest.mjs', 'run', '--config', 'vitest.integration.config.ts']
-      : mode === 'demo'
-        ? ['--import', 'tsx', 'apps/server/src/demo.ts']
-        : mode === 'dev'
-          ? ['--import', 'tsx', 'scripts/dev.ts']
-          : ['--import', 'tsx', 'apps/server/src/operator-cli.ts', mode!];
+      : mode === 'browser'
+        ? ['node_modules/@playwright/test/cli.js', 'test', ...process.argv.slice(3)]
+        : mode === 'demo'
+          ? ['--import', 'tsx', 'apps/server/src/demo.ts']
+          : mode === 'dev'
+            ? ['--import', 'tsx', 'scripts/dev.ts']
+            : ['--import', 'tsx', 'apps/server/src/operator-cli.ts', mode!];
   return new Promise<number>((resolve, reject) => {
     child = spawn(process.execPath, arguments_, {
       stdio: 'inherit',
       env: {
         ...process.env,
         ...(mode === 'dev' ? { NODE_ENV: 'development' } : {}),
-        ...(demoMarket ? { DEMO_MARKET: '1' } : {}),
         [connectionVariable]: connectionString,
       },
     });

@@ -19,14 +19,17 @@ export class ApiClient {
   private cookies = new Map<string, string>();
   csrfToken = '';
 
-  constructor(private readonly app: () => Api) {}
+  constructor(
+    private readonly app: () => Api,
+    private readonly origin = API_ORIGIN,
+  ) {}
 
   get cookieHeader() {
     return [...this.cookies].map(([name, value]) => `${name}=${value}`).join('; ');
   }
 
   async request(method: Method, url: string, payload?: unknown, overrides: Headers = {}) {
-    const headers: Headers = { origin: API_ORIGIN, ...overrides };
+    const headers: Headers = { origin: this.origin, ...overrides };
     if (this.cookieHeader) headers.cookie = this.cookieHeader;
     if (this.csrfToken && !('x-csrf-token' in overrides)) {
       headers['x-csrf-token'] = this.csrfToken;
@@ -64,6 +67,7 @@ export async function createApiFixture(
     admission?: HttpAdmissionOptions;
     live?: LiveOptions;
     hooks?: ExchangeOptions['hooks'];
+    origin?: string;
   } = {},
 ) {
   const connectionString = process.env.TEST_DATABASE_URL;
@@ -99,7 +103,7 @@ export async function createApiFixture(
     app = await buildApi({
       exchange,
       auth,
-      origin: API_ORIGIN,
+      origin: options.origin ?? API_ORIGIN,
       secureCookies: false,
       logger: false,
       ...(options.admission ? { admission: options.admission } : {}),
@@ -128,7 +132,7 @@ export async function createApiFixture(
       new ApiClient(() => {
         if (!app) throw new Error('The API is stopped.');
         return app;
-      });
+      }, options.origin);
     const admin = client();
     const login = await admin.login('operator');
     if (login.statusCode !== 200) throw new Error(`Bootstrap login failed (${login.statusCode}).`);

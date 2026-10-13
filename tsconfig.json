@@ -25,6 +25,7 @@
     "packages/**/*.ts",
     "tests/**/*.ts",
     "scripts/**/*.ts",
-    "vitest*.ts"
+    "vitest*.ts",
+    "playwright.config.ts"
   ]
 }
