@@ -153,6 +153,53 @@ describe('consistent trader and administrator workspaces', () => {
     expect(JSON.stringify(workspace)).not.toContain(trader.invitation.token);
   });
 
+  it('labels synthetic activity without exposing its account identities to traders', async () => {
+    const trader = await context.trader('trader');
+    const makerAccountId = randomUUID();
+    const takerAccountId = randomUUID();
+    await context.sql.query(
+      `INSERT INTO accounts (id, kind, label) VALUES
+        ($1, 'TRADER', 'Demo market maker'), ($2, 'TRADER', 'Demo market taker')`,
+      [makerAccountId, takerAccountId],
+    );
+    await context.sql.query(
+      `INSERT INTO demo_market (session_id, maker_account_id, taker_account_id, enabled, status)
+        VALUES ($1, $2, $3, true, 'RUNNING')`,
+      [context.sessionId, makerAccountId, takerAccountId],
+    );
+    const paused = (await trader.browser.request('GET', '/api/workspace')).json<WorkspaceView>();
+    expect(paused.market.demoMarket).toEqual({
+      enabled: true,
+      status: 'PAUSED',
+      updatedAt: expect.any(String),
+    });
+    expect(JSON.stringify(paused)).not.toContain(makerAccountId);
+    expect(JSON.stringify(paused)).not.toContain(takerAccountId);
+    await context.marketState('resume');
+    const admin = (await context.admin.request('GET', '/api/workspace')).json<WorkspaceView>();
+    expect(admin.admin?.overview.demoMarket).toMatchObject({
+      enabled: true,
+      status: 'RUNNING',
+      makerAccountId,
+      takerAccountId,
+    });
+    expect(admin.admin?.overview.counts.traders).toBe('1');
+    expect(admin.admin?.traders).toHaveLength(1);
+    const inspectPath = `/api/admin/traders/${makerAccountId}/workspace`;
+    expect((await context.admin.request('GET', inspectPath)).statusCode).toBe(200);
+    expect((await trader.browser.request('GET', inspectPath)).statusCode).toBe(403);
+
+    await context.sql.query("UPDATE exchange_control SET fault = 'Test recorded fault'");
+    const faulted = (await trader.browser.request('GET', '/api/workspace')).json<WorkspaceView>();
+    expect(faulted.market.demoMarket?.status).toBe('FAULTED');
+    expect(faulted.fault).toBe('ACCOUNTING_FAULT');
+    expect(JSON.stringify(faulted)).not.toContain('Test recorded fault');
+
+    await context.sql.query("UPDATE demo_market SET enabled = false, status = 'STOPPED'");
+    const stopped = (await trader.browser.request('GET', '/api/workspace')).json<WorkspaceView>();
+    expect(stopped.market.demoMarket).toMatchObject({ enabled: false, status: 'STOPPED' });
+  });
+
   it('calculates exact order totals and whole candles beyond the displayed fill window', async () => {
     const seller = await context.trader('seller');
     const buyer = await context.trader('buyer');

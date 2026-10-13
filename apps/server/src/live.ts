@@ -26,6 +26,7 @@ function visible(event: Outbox, actor: Principal): boolean {
       'TRADER_SUSPENDED',
       'MARKET_PAUSED',
       'MARKET_RESUMED',
+      'DEMO_MARKET_CHANGED',
     ].includes(event.event_type)
   )
     return true;

@@ -295,12 +295,24 @@ export const WorkspaceAudit = Type.Object({
   result: Type.Record(Type.String(), Type.Unknown()),
   createdAt: Type.String(),
 });
+export const DemoMarket = Type.Object({
+  enabled: Type.Boolean(),
+  status: Type.String(),
+  updatedAt: Type.String(),
+});
 export const WorkspaceOverview = Type.Object({
   feeAccountId: Type.Union([Id, Type.Null()]),
   issuanceAccountId: Type.Union([Id, Type.Null()]),
   sessionId: Type.Union([Id, Type.Null()]),
   marketState: Type.String(),
   fault: Type.Union([Type.String(), Type.Null()]),
+  demoMarket: Type.Optional(
+    Type.Object({
+      ...DemoMarket.properties,
+      makerAccountId: Id,
+      takerAccountId: Id,
+    }),
+  ),
   counts: Type.Object({
     traders: Type.String(),
     suspended: Type.String(),
@@ -318,6 +330,7 @@ export const Workspace = Type.Object({
     book: Market.properties.book,
     trades: Market.properties.trades,
     candles: Type.Array(Candle),
+    demoMarket: Type.Optional(DemoMarket),
   }),
   account: Type.Optional(AccountWorkspace),
   admin: Type.Optional(

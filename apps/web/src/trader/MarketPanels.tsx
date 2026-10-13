@@ -59,28 +59,51 @@ export function CandleChart({ candles = [] }: { candles: MarketView['candles'] }
       })),
     );
     if (firstPaint.current && candles.length) {
-      chart.current?.timeScale().fitContent();
+      // Leave room for early trades instead of stretching one flat candle across the chart.
+      // Set this only once so incoming snapshots do not undo the user's pan or zoom.
+      chart.current?.timeScale().setVisibleLogicalRange({
+        from: Math.min(0, candles.length - 20) - 2,
+        to: candles.length + 2,
+      });
       firstPaint.current = false;
     }
   }, [candles]);
 
   return (
-    <div className="trader-chart-area">
-      <div
-        ref={container}
-        className="trader-chart-canvas"
-        aria-label="One-minute candle chart of local executions"
-      />
-      {candles.length === 0 && (
-        <div className="trader-chart-empty">
-          <span className="trader-empty-mark" aria-hidden="true">
-            ↗
-          </span>
-          <strong>A market starts with a trade.</strong>
-          <p>Place a limit order to join the book. Candles appear when orders match.</p>
+    <>
+      <div className="trader-chart-area">
+        <div
+          ref={container}
+          className="trader-chart-canvas"
+          aria-label="One-minute candle chart of local executions"
+        />
+        {candles.length === 0 && (
+          <div className="trader-chart-empty">
+            <span className="trader-empty-mark" aria-hidden="true">
+              ↗
+            </span>
+            <strong>No executions yet</strong>
+            <p>
+              Resting orders do not draw candles. Trades between participants build this chart one
+              minute at a time.
+            </p>
+          </div>
+        )}
+      </div>
+      {candles.length > 0 && candles.length < 5 && (
+        <div className="trader-chart-history-note" role="status">
+          <strong>
+            {candles.length === 1
+              ? 'Only one minute has trades'
+              : `Early trading history · ${candles.length} minutes with trades`}
+          </strong>
+          <p>
+            A flat candle means the price stayed the same. More minutes with executions will build
+            this chart; waiting alone does not add candles.
+          </p>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -100,9 +123,18 @@ export function PriceChart({ market }: { market: MarketView }) {
           <span>Last execution</span>
         </div>
       </div>
+      {market.demoMarket && (
+        <div className="trader-panel-note">
+          <strong>
+            Synthetic demo market · {market.demoMarket.status.toLowerCase().replaceAll('_', ' ')}
+          </strong>
+          <br />
+          Simulated orders from dedicated automated accounts. Prices are not external market data.
+        </div>
+      )}
       <CandleChart candles={market.candles ?? []} />
       <div className="trader-chart-footer">
-        <span>1m candles · UTC · empty intervals stay empty.</span>
+        <span>1m candles · UTC · no external price feed · empty intervals stay empty.</span>
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
           Charts by TradingView
         </a>

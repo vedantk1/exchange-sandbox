@@ -60,15 +60,20 @@ export function AdminWorkspace({
 
   if (!admin) return null;
   const { overview, traders, invitations, audit } = admin;
+  const demoMarket = overview.demoMarket;
   const selected = traders.find((trader) => trader.accountId === selectedId);
   const systemName =
     selectedId && selectedId === overview.feeAccountId
       ? 'System fee account'
       : selectedId && selectedId === overview.issuanceAccountId
         ? 'Virtual issuance account'
-        : selectedId && !selected
-          ? `Account ${selectedId.slice(0, 8)}`
-          : undefined;
+        : selectedId && selectedId === demoMarket?.makerAccountId
+          ? 'Demo market maker account'
+          : selectedId && selectedId === demoMarket?.takerAccountId
+            ? 'Demo market taker account'
+            : selectedId && !selected
+              ? `Account ${selectedId.slice(0, 8)}`
+              : undefined;
   const locked = busy || !connected;
   const paused = overview.marketState === 'PAUSED';
   const faulted = Boolean(overview.fault);
@@ -83,7 +88,7 @@ export function AdminWorkspace({
     ? {
         title: 'Resume trading',
         description:
-          'Reconcile the accounting records, finish any safe pending cancellations, and reopen order submission and matching. An unresolved accounting fault prevents resume. There is no liquidity bot in this milestone.',
+          'Reconcile the accounting records, finish any safe pending cancellations, and reopen order submission and matching. An unresolved accounting fault prevents resume. An enabled demo simulator can resume placing orders when trading reopens.',
         path: '/api/admin/market/resume',
       }
     : {
@@ -333,8 +338,8 @@ export function AdminWorkspace({
                   <div>
                     <strong>Review the market rules</strong>
                     <p>
-                      BTC-SIM / USD-SIM · limit orders only · 0.10% fee on each side. There is no
-                      automated liquidity in this milestone.
+                      BTC-SIM / USD-SIM · limit orders only · 0.10% fee on each side. The optional
+                      demo simulator uses these same market rules.
                     </p>
                   </div>
                 </li>
@@ -348,6 +353,47 @@ export function AdminWorkspace({
               </ol>
             </section>
           </div>
+          <section className="admin-card" aria-labelledby="demo-market-heading">
+            <div className="admin-card-heading">
+              <div>
+                <p className="admin-eyebrow">Synthetic activity</p>
+                <h2 id="demo-market-heading">Demo market simulator</h2>
+              </div>
+              <Status value={demoMarket?.status ?? 'NOT_STARTED'} />
+            </div>
+            <p className="admin-body-copy">
+              Dedicated automated accounts place simulated orders in the shared book. Participants
+              can trade against them. Their executions build the chart; prices do not come from an
+              external market feed.
+            </p>
+            <p className="admin-body-copy">
+              Opt in locally with <code>pnpm dev:market</code>. Use <code>pnpm dev</code> for manual
+              trading. Accounts are created after trading resumes. Pausing the market also pauses
+              demo activity.
+            </p>
+            {demoMarket && (
+              <>
+                <div className="admin-operating-actions">
+                  <button
+                    className="button ghost"
+                    onClick={() => inspect(demoMarket.makerAccountId)}
+                  >
+                    Inspect demo maker
+                  </button>
+                  <button
+                    className="button ghost"
+                    onClick={() => inspect(demoMarket.takerAccountId)}
+                  >
+                    Inspect demo taker
+                  </button>
+                </div>
+                <p className="admin-history-note">
+                  Last simulator update {date(demoMarket.updatedAt)}. Automated accounts have no
+                  login and are excluded from participant counts.
+                </p>
+              </>
+            )}
+          </section>
           <section className="admin-card">
             <div className="admin-card-heading">
               <div>

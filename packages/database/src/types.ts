@@ -14,6 +14,18 @@ export type Asset = 'BTC-SIM' | 'USD-SIM';
 export type Bucket = 'AVAILABLE' | 'RESERVED';
 
 export interface Database {
+  demo_market: {
+    session_id: string;
+    maker_account_id: string;
+    taker_account_id: string;
+    enabled: boolean;
+    status: 'RUNNING' | 'STOPPED' | 'LIMITED_INVENTORY' | 'ERROR';
+    cycle: DefaultExactInteger;
+    reference_price: DefaultExactInteger;
+    plan: ColumnType<unknown[], string, string>;
+    next_command: Generated<number>;
+    updated_at: Timestamp;
+  };
   exchange_sessions: {
     id: string;
     state: 'ACTIVE' | 'CLOSED';

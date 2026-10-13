@@ -2,13 +2,13 @@
 
 ## Current milestone
 
-Milestone 1 established matching, accounting, and recovery. Milestone 2 added invitations, authentication, a Fastify HTTP API, and audited administrator controls. Milestone 3 adds the React trader and administrator workspaces, exact order/balance/history views, and live synchronization. The [MVP](MVP.md) remains the full product specification; [architecture](ARCHITECTURE.md) records the implementation direction and [API documentation](API.md) describes the implemented routes.
+Milestone 1 established matching, accounting, and recovery. Milestone 2 added invitations, authentication, a Fastify HTTP API, and audited administrator controls. Milestone 3 added the React trader and administrator workspaces, exact order/balance/history views, and live synchronization. The current increment adds an opt-in development market simulator and clearer sparse-chart states. The [MVP](MVP.md) remains the full product specification; [architecture](ARCHITECTURE.md) records the implementation direction and [API documentation](API.md) describes the implemented routes.
 
 The HTTP adapter derives account identity from an opaque login cookie, validates strict request schemas, and checks role and ownership. Financial and access mutations recheck authorization under the same installation lock. Internal TypeScript methods remain trusted module interfaces; caller-supplied account IDs alone are never authentication. The React client shares transport types and uses decimal strings for financial labels and exact integer arithmetic for previews.
 
 HTTP admission has a bounded active-request count and deadline. The control lock has a bounded wait. An observed disconnect before admission prevents a later mutation; an admitted command finishes atomically and is resolved through its original receipt. The [API guide](API.md) documents the prototype limits and the distinction between an observed disconnect and an uncertain client-side timeout.
 
-Local administrator setup starts paused and supplies no administrator balance. The isolated matching demo still uses its separate developer fixture, which starts trading directly. Protected market orders, bot operation, session rollover, exports, and a separate restricted application database role remain later milestones. The current publisher reads committed outbox positions and sends authorized snapshot invalidations; it does not send financial deltas or token secrets.
+Local administrator setup starts paused and supplies no administrator balance. The isolated matching demo still uses its separate developer fixture, which starts trading directly. Protected market orders, administrator-operated liquidity-bot controls, session rollover, exports, and a separate restricted application database role remain later milestones. The current publisher reads committed outbox positions and sends authorized snapshot invalidations; it does not send financial deltas or token secrets.
 
 ## Prerequisites and setup
 
@@ -48,6 +48,7 @@ The bundled PostgreSQL dependency supplies platform-specific binaries, so no Doc
 | -------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `pnpm demo`                      | Run the controlled scenario against temporary PostgreSQL, or `DATABASE_URL` when supplied         |
 | `pnpm dev`                       | Start Vite and the API in development/watch mode against persistent PostgreSQL or `DATABASE_URL`  |
+| `pnpm dev:market`                | Start the same development stack with ongoing, explicitly synthetic market activity               |
 | `pnpm admin:setup`               | Create the single administrator through an interactive local prompt                               |
 | `pnpm admin:reset`               | Recover administrator access and revoke its existing sessions                                     |
 | `pnpm typecheck`                 | Check all workspace TypeScript, including tests and developer scripts                             |
@@ -61,11 +62,23 @@ The bundled PostgreSQL dependency supplies platform-specific binaries, so no Doc
 
 Local iteration uses development/watch mode. `API_ORIGIN` selects the exact permitted origin; mutating requests must send it in the Origin header. Secure cookies require an HTTPS origin; the HTTP exception is limited to loopback. The default listener is loopback. TLS termination, proxy deployment, and remote installation have not been validated as a release configuration.
 
+## Development demo market
+
+After local administrator setup, run `pnpm dev:market`, sign in, and resume the market if it is paused. This starts the normal Vite/API development stack with `DEMO_MARKET=1`. It requires `NODE_ENV=development` and a loopback API listener; startup rejects other deployment settings and flag values other than `0` or `1`. Plain `pnpm dev` leaves the simulator disabled unless the calling environment explicitly sets `DEMO_MARKET=1`. Stop the current runner before switching modes. To override an inherited enable flag, use `DEMO_MARKET=0 pnpm dev`.
+
+On its first healthy trading cycle in the session, the simulator creates two non-login trading accounts, each receiving the standard one-time allocation of 1 BTC-SIM and 100,000 USD-SIM. They share the existing book with human participants. Their orders can fill human orders, so enabling the simulator changes actual sandbox balances and history. Restarting never refills the accounts or erases executions. The administrator overview identifies both accounts for balance/order/activity inspection; they are excluded from the login participant list and participant counts. Starting, stopping, and automatic refilling are not administrator HTTP or browser controls in this increment.
+
+Each cycle cancels the simulator's remaining orders and requests two bids and two asks of 0.0200 BTC-SIM each, at 10 and 30 USD-SIM either side of a fictional reference price. The reference starts at 50,000 and follows a bounded integer-cent walk between 48,000 and 52,000. A separate taker submits a 0.0010 BTC-SIM crossing limit order, choosing its side to bring its BTC inventory toward the starting allocation. The next cycle runs four seconds after the previous cycle settles; this is not a guaranteed execution cadence. Quotes obey ordinary price/time matching, self-trade prevention, exact reservations, 0.1 percent fees, and order limits. Insufficient funds produce a visible limited-inventory condition; no borrowing or automatic issuance occurs.
+
+The service persists each cycle's commands and progress before dispatch. After a process interruption, it resolves unfinished work using the same command identities, then continues from PostgreSQL state. An operator pause freezes new simulator work and retains open orders; resume allows progress again. An accounting fault blocks financial work. Normal shutdown stops scheduling and cancels only the simulator accounts' remaining orders. Starting in disabled mode also attempts that cleanup, including after an interrupted prior process. Completed fills and human resting orders are preserved. If a fault prevents cleanup, status remains Error and remaining orders stay inspectable. After the underlying fault is resolved, administrator resume cancels disabled simulator orders and reconciles again before reopening trading.
+
+Charts use actual execution timestamps and complete one-minute UTC buckets. There is no instant historical seed, accelerated clock, or external price feed. Multiple trades in one minute update one candle; a completely flat candle is valid when prices are unchanged. The chart explains zero executions and the first four populated minutes without covering existing candles. Allow several real minutes for useful history. This development demonstration is separate from the planned administrator-operated single quoting bot in the full [MVP](MVP.md#liquidity-bot-planned-full-mvp-flow).
+
 ## Browser workflows and live state
 
 The administrator starts at the control room. Invite participants, inspect their accounts, pause/resume trading, run reconciliation, and review audit history. Invitation links expire after 24 hours; recovery links after one hour. Their secrets are displayed only for immediate copying, use URL fragments, and are removed from the recipient's address bar after capture. They are not written to browser request recovery storage. If an issuance response loses its one-time secret, revoke/reissue the invitation or create a replacement recovery link.
 
-Participant screens separate trading, open/recent orders, balances/activity, and execution/command history. Limit orders require review of the quantity, price, fee, and reservation before submission. Cancellation applies to the displayed order snapshot and preserves earlier fills. Book depth, candles, and recent trades use this installation's executions only; an empty exchange shows an empty chart instead of invented prices.
+Participant screens separate trading, open/recent orders, balances/activity, and execution/command history. Limit orders require review of the quantity, price, fee, and reservation before submission. Cancellation applies to the displayed order snapshot and preserves earlier fills. Book depth, candles, and recent trades use this installation's executions only; an empty exchange shows an empty chart instead of invented prices. Sparse history remains visible with an explanation, and simulator state is disclosed in the trading and administrator workspaces.
 
 The browser reads a consistent workspace snapshot, then subscribes after its outbox cursor. SSE notifications invalidate that snapshot; serialized refreshes replace the visible values from PostgreSQL. A disconnected workspace retains its last confirmed values and disables new commands until refreshed. Authorization is rechecked during live delivery. There is no optimistic credit, invented fill, or assumed cancellation.
 
@@ -81,7 +94,7 @@ Use a dedicated development database for the demo. Its migrations create the exc
 
 Tests create a uniquely named exchange test schema for each case using the supplied database connection. They drop only those generated schemas during cleanup. The test database role needs permission to create schemas, tables, functions, and triggers. Existing unrelated schemas are not reset or truncated. A test process killed outside normal cleanup can leave a generated test schema behind.
 
-Integration tests deliberately use database-owner privileges for corruption probes. That establishes what recovery detects; it is not evidence of tamper resistance against the database owner. The future deployment design separates migration ownership and application permissions. Migration `002_identity_and_controls` extends existing installations without rewriting migration 001 or issuing new allocations to existing traders. Legacy developer-only accounts do not acquire login credentials automatically.
+Integration tests deliberately use database-owner privileges for corruption probes. That establishes what recovery detects; it is not evidence of tamper resistance against the database owner. The future deployment design separates migration ownership and application permissions. Migrations `002_identity_and_controls` and `003_demo_market` extend existing installations without rewriting migration 001 or issuing new allocations to existing traders. Migration 003 creates only simulator metadata; accounts and initial allocations are created only on its first enabled, healthy trading cycle. Legacy developer-only accounts do not acquire login credentials automatically.
 
 ## Core API
 
@@ -128,7 +141,7 @@ The domain does not open database connections. The service owns the transaction 
 
 ## Evidence and limitations
 
-Local validation uses Node.js 24 and PostgreSQL 18.4. The UI milestone passed 55 domain/property/client tests and 58 PostgreSQL integration tests, plus type checking, formatting, and the production bundle build. Run `pnpm check` for current counts and results. The CI workflow runs the same checks against a PostgreSQL service; no remote CI run has been performed.
+Local validation uses Node.js 24 and PostgreSQL 18.4. The simulator increment passed 55 domain/property/client tests and 66 PostgreSQL integration tests, plus type checking, formatting, and the production bundle build. Run `pnpm check` for current counts and results. The CI workflow runs the same checks against a PostgreSQL service; no remote CI run has been performed.
 
 | Suite                                      | Behavior exercised                                                                                                                                                                     |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -139,6 +152,7 @@ Local validation uses Node.js 24 and PostgreSQL 18.4. The UI milestone passed 55
 | `tests/integration/api*.test.ts`           | Cookie authentication, CSRF/origin checks, invitation races, account privacy, credential revocation, admin controls, grants, and inspection during faults                              |
 | `tests/integration/admin-recovery.test.ts` | A queued resume observes the fault it actually reconciles; an unpersisted runtime fault stays visible and cannot be cleared by replaying an older receipt                              |
 | `tests/integration/workspace.test.ts`      | Snapshot/cursor consistency during concurrent commits, complete open orders, exact totals beyond the visible fill window, candle aggregation, system-account inspection, and ownership |
+| `tests/integration/demo-market.test.ts`    | Real simulated fills/fees/candles, bounded quotes, pause/fault gates, finite inventory, committed-command replay, disabled restart cleanup, recovery cleanup, and shutdown draining    |
 | `tests/integration/live.test.ts`           | Real SSE listeners, committed replay/reset, authorized filtering, revocation/expiry, stream bounds, shutdown, and fault invalidation without a new event cursor                        |
 | `apps/web/src/**/*.test.ts`                | Exact order preview boundaries, durable request identity, ambiguous responses, safe retries, receipts, and browser storage failures                                                    |
 
@@ -151,6 +165,8 @@ Manual Chromium checks through the real development UI covered sign-in, a 0.4 BT
 Administrator checks covered invitation creation/copy/revocation, an exact 0.000000001 USD-SIM grant and its journal entry, suspension/reinstatement without repeated funding, administrative cancellation with its recorded reason and exact reservation release, reconciliation, and audit history. Separate browser sessions redeemed an invitation, received the exact initial allocation, and completed password recovery while preserving existing balances. Both flows removed token fragments from the address bar, including a new handoff opened within the existing page. These are local manual checks, not a committed browser regression suite or full MVP acceptance.
 
 Local smoke checks also started the actual watch-mode HTTP listener, checked its liveness, uninitialized readiness, and rejection of anonymous private reads, then stopped it. The owner setup prompt was checked for hidden password input and cancellation without creating an administrator. The persistent development database reopened successfully between these commands; no default application credentials are installed.
+
+Manual simulator validation used the running development browser: the shared book and recent executions refreshed without a page reload, new executions updated the current candle, and existing participant orders filled with corresponding balance changes. The sparse-history explanation stayed visible alongside the candles. This supplements the isolated integration tests; it is not a production load or market-realism claim.
 
 ## Troubleshooting
 

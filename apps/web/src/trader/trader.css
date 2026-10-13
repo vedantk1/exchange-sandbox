@@ -212,6 +212,21 @@
   display: grid;
   place-items: center;
 }
+.trader-chart-history-note {
+  padding: 12px 17px;
+  border-top: 1px solid #27333f;
+  background: #162330;
+  color: #b8ccd9;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.trader-chart-history-note strong {
+  color: #d5e4ed;
+  font-weight: 550;
+}
+.trader-chart-history-note p {
+  margin: 3px 0 0;
+}
 .trader-chart-footer {
   display: flex;
   justify-content: space-between;

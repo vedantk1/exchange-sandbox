@@ -2,11 +2,13 @@
 
 Status: MVP product scope accepted. The defaults below define the agreed exchange sandbox, with real funds excluded. They are requirements, not claims about implemented features. The accepted technical design is recorded separately in [System architecture and stack](ARCHITECTURE.md); [development and validation](DEVELOPMENT.md) tracks the implemented milestone.
 
+The current development build also includes the explicitly requested two-account demo market below. It generates ongoing sandbox executions for the trader workflow and charts. It is separate from the planned administrator-operated single liquidity bot; the full bot controls, allocation preset, grants workflow, and lifecycle acceptance are not yet implemented.
+
 The product lets a developer or technical learner run a small exchange, trade virtual assets, and inspect how orders, executions, fees, and balances change. Its primary value is understandable exchange behavior. It does not promise realistic trading returns or reproduce an external exchange's liquidity.
 
 ## Product boundaries
 
-- One installation has one shared active trading session. Invited traders and one optional liquidity bot use the same order book.
+- One installation has one shared active trading session. Invited traders and the planned optional liquidity bot use the same order book. The current development simulator uses two disclosed automated participants in that same book.
 - There is one predefined spot pair, BTC-SIM / USD-SIM. Both are internal virtual assets with no monetary value, blockchain connection, deposit address, or withdrawal path.
 - Matching happens between orders in this installation. All charts and market statistics use its own executions. There are no external market feeds or exchange integrations.
 - The product has an original identity and interface. Familiar order-book conventions are useful; Binance branding and copied assets are excluded.
@@ -50,6 +52,8 @@ These are product surfaces, not a requirement for separate pages. Order details 
 Every trading surface identifies the active session and virtual asset status. Shared market data must not expose trader handles or account identifiers. Bot participation is disclosed with a system-liquidity label. Private account details remain restricted by role.
 
 Before the first trade, the chart and last-trade price show an honest empty state. Empty time intervals do not invent trades or volume. Order-book prices may exist before a last-trade price exists.
+
+The implemented chart also explains the first one to four populated minute buckets: a flat candle is valid, and additional candles require trades in additional minutes. Existing data stays visible. Ongoing demo activity uses real execution times, so several minutes of chart history take several real minutes to accumulate.
 
 ## Trader flows
 
@@ -140,7 +144,15 @@ The minimum-notional rule applies when submitting an order. Valid executions and
 - Available plus reserved equals total for each asset. Display rounding must not hide the exact amount available to spend; details and exports expose supported precision.
 - Fees accumulate in a visible system fee account. Grants create explicit virtual issuance records. Every change has an attributable cause; balances cannot be overwritten or silently repaired.
 
-## Liquidity bot
+## Development demo market (implemented)
+
+The operator can explicitly enable a local simulator with `pnpm dev:market`. It is restricted to development mode on loopback and uses two non-login accounts, each with the ordinary one-time initial allocation of 1 BTC-SIM and 100,000 USD-SIM. The trader workspace labels the activity as synthetic, and the administrator can inspect both accounts. Human orders and automated orders share the same matching rules and may execute against each other.
+
+After each completed cycle, the service waits four seconds. The maker replaces its remaining quotes with two bids and two asks of 0.0200 BTC-SIM, at 10 and 30 USD-SIM offsets around a fictional reference that moves within 48,000–52,000 USD-SIM. The taker submits a 0.0010 BTC-SIM crossing limit order, choosing its side according to its BTC inventory. Ordinary fees, reservations, self-trade prevention, and limits apply. Limited inventory is visible and never causes automatic funding. There is no external market feed, historical backfill, or direct candle generation.
+
+A pause freezes activity without canceling orders. Persisted command plans and receipt identities support restart without repeating allocations or duplicating accepted effects. Normal shutdown, or starting with the simulator disabled, cancels its remaining orders while preserving completed trades and unrelated orders. Cleanup blocked by an accounting fault stays visibly incomplete. The [development guide](DEVELOPMENT.md#development-demo-market) describes controls and recovery. This smaller development flow has no browser start/stop controls and does not claim the full bot lifecycle below is complete.
+
+## Liquidity bot (planned full-MVP flow)
 
 One disclosed bot account supplies a useful book when no other trader is present. Its initial allocation is 100 BTC-SIM and 5,000,000 USD-SIM. It uses the same matching, fees, balance checks, and self-trade rule as traders.
 
@@ -153,6 +165,8 @@ States are Stopped, Running, Frozen by market pause, or Error. Limited inventory
 ## Administrator features and flows
 
 ### First setup and first usable market
+
+The bot setup steps in this full-MVP flow remain planned. Current local setup creates a paused session without bot accounts; the development simulator allocates its two accounts only when first enabled in a healthy trading market.
 
 1. On an uninitialized installation, the operator uses the documented local setup process to create the administrator. No universal default credentials are supplied. Setup cannot claim an installation that already has an administrator.
 2. The first session is created Paused, with fixed market rules, an initial bot allocation, and the bot Stopped. There are no invented trades.
@@ -200,7 +214,7 @@ A pause can also result from a detected consistency failure. This differs from a
 
 Grants never modify an existing reservation or a prior record. Direct balance editing, deductions, fees paid out to administrators, and trader-controlled refills are excluded. The bot can continue using granted funds when resumed.
 
-### Start and stop the bot
+### Start and stop the bot (planned)
 
 1. Start shows the fixed preset, available inventory, and whether the market is trading or paused. It is valid to enable the bot while paused; quoting waits for resume.
 2. Start does not grant more funds. Insufficient inventory displays the missing side or level instead of implying full liquidity.

@@ -18,6 +18,7 @@
     "build:web": "pnpm --filter @sandbox/web build",
     "check": "pnpm typecheck && pnpm format:check && pnpm test && pnpm test:integration && pnpm build:web",
     "dev": "tsx scripts/with-postgres.ts dev",
+    "dev:market": "tsx scripts/with-postgres.ts dev-market",
     "admin:setup": "tsx scripts/with-postgres.ts setup",
     "admin:reset": "tsx scripts/with-postgres.ts reset"
   },

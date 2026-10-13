@@ -16,7 +16,15 @@ pnpm dev
 
 Open `http://localhost:3000`. Setup prompts for the administrator handle and a password without echoing it. The first session starts paused, and the development runner retains PostgreSQL data between runs.
 
-Sign in as the administrator, create invitations, and privately hand the single-use links to two participants. After they join, resume trading with a recorded reason. Use separately signed-in browser profiles to place a resting sell and a crossing buy, then inspect their fills and exact balance changes. There is no automatic liquidity in this milestone.
+Sign in as the administrator, create invitations, and privately hand the single-use links to participants. After they join, resume trading with a recorded reason. For manual trading, use separately signed-in browser profiles to place a resting sell and a crossing buy, then inspect their fills and exact balance changes.
+
+For ongoing synthetic activity, stop the runner and opt in to the development simulator:
+
+```sh
+pnpm dev:market
+```
+
+Two dedicated automated accounts place ordinary orders in the shared book while trading is open. You can trade against them, and their actual executions build the chart. Prices are fictional; there is no external market feed or backfilled history. Leave it running for several minutes to build multiple one-minute candles. Stop the runner and return to `pnpm dev` to disable the simulator and cancel its remaining orders; completed trades stay in history. See the [development guide](docs/DEVELOPMENT.md#development-demo-market) for inventory, recovery, and environment controls.
 
 For an isolated matching demonstration and the full validation suite:
 
@@ -40,6 +48,7 @@ The demo and integration runner start real, temporary PostgreSQL 18 instances on
 - Trader screens with a live order book, internal execution candles, reviewed limit orders, cancellation, exact balances, and linked activity/history.
 - Administrator screens for invitations, access recovery, participants, system accounts, market controls, reviewed grants, and audit history.
 - Reconnectable authorized SSE invalidations, consistent workspace snapshots, and browser request identity preserved across refreshes after uncertain responses.
+- An opt-in local demo market with persisted command plans, ordinary fees and inventory limits, explicit synthetic-activity labels, and honest sparse-chart states.
 
 The architecture is a modular monolith with PostgreSQL as the authority. Serializing mutations gives this single-market prototype an understandable consistency boundary. Throughput is unmeasured; distributed services would add recovery complexity before there is evidence they are needed.
 
@@ -50,4 +59,4 @@ The architecture is a modular monolith with PostgreSQL as the authority. Seriali
 - [Development and validation](docs/DEVELOPMENT.md): local commands, core API, persistence, and test evidence.
 - [HTTP API](docs/API.md): routes, authentication, request examples, and retry behavior.
 
-Protected market orders, bot operation, session rollover, pagination/exports, a packaged self-host deployment, and complete browser acceptance remain future work. History views are explicitly bounded; all currently open orders remain visible. Real funds remain outside scope.
+Protected market orders, administrator-operated liquidity-bot controls, session rollover, pagination/exports, a packaged self-host deployment, and complete browser acceptance remain future work. The development simulator is a smaller, explicitly enabled demonstration tool. History views are explicitly bounded; all currently open orders remain visible. Real funds remain outside scope.

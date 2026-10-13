@@ -1,10 +1,12 @@
 import { buildApi } from './api.js';
 import { AuthService } from './auth/index.js';
 import { Exchange, WriterUnavailableError } from './exchange.js';
+import { DemoMarket } from './demo-market/service.js';
 
 let exchange: Exchange | undefined;
 let app: Awaited<ReturnType<typeof buildApi>> | undefined;
 let shutdown: Promise<void> | undefined;
+let simulator: DemoMarket | undefined;
 
 function safeCode(error: unknown): string {
   const code = (error as { code?: unknown })?.code;
@@ -14,9 +16,13 @@ function safeCode(error: unknown): string {
 async function close(): Promise<void> {
   shutdown ??= (async () => {
     try {
-      await app?.close();
+      await simulator?.stop();
     } finally {
-      await exchange?.close();
+      try {
+        await app?.close();
+      } finally {
+        await exchange?.close();
+      }
     }
   })();
   return shutdown;
@@ -36,10 +42,17 @@ try {
     throw new Error('API_ORIGIN must be an exact HTTP or HTTPS origin.');
   const secureCookies = parsedOrigin.protocol === 'https:';
   const loopback = ['127.0.0.1', 'localhost', '::1'].includes(host);
+  const demoMarket = process.env.DEMO_MARKET === '1';
+  if (process.env.DEMO_MARKET !== undefined && !['0', '1'].includes(process.env.DEMO_MARKET))
+    throw new Error('DEMO_MARKET must be 0 or 1.');
+  if (demoMarket && (process.env.NODE_ENV !== 'development' || !loopback))
+    throw new Error('The demo market is restricted to loopback development.');
   if (!secureCookies && (!loopback || process.env.NODE_ENV === 'production'))
     throw new Error('HTTP is permitted only for loopback development.');
 
   exchange = await Exchange.open(databaseUrl, { allowFaultedStartup: true });
+  simulator = new DemoMarket(exchange);
+  if (!demoMarket) await simulator.stop();
   app = await buildApi({
     exchange,
     auth: new AuthService(exchange),
@@ -56,8 +69,11 @@ try {
     });
   }
   await app.listen({ port, host });
+  if (demoMarket) simulator.start();
   console.log(`Exchange sandbox API ready on port ${port}. Application origin: ${origin}.`);
   console.log('Virtual assets only. Run administrator setup before inviting traders.');
+  if (demoMarket)
+    console.log('Synthetic demo market enabled: a cycle every four seconds while trading is open.');
 } catch (error) {
   if (error instanceof WriterUnavailableError)
     console.error('Another exchange process owns the writer. Stop it before starting this server.');

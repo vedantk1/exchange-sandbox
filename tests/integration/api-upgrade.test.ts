@@ -58,7 +58,12 @@ it('upgrades a committed milestone-one installation without changing its account
     exchange = await Exchange.open(context.url);
     expect(
       (await context.sql.query('SELECT name FROM schema_migrations ORDER BY name')).rows,
-    ).toEqual([{ name: '001_exchange_core' }, { name: '002_identity_and_controls' }]);
+    ).toEqual([
+      { name: '001_exchange_core' },
+      { name: '002_identity_and_controls' },
+      { name: '003_demo_market' },
+    ]);
+    expect((await context.sql.query('SELECT session_id FROM demo_market')).rows).toEqual([]);
     const snapshot = await exchange.snapshot(accountId);
     expect(snapshot.sessionId).toBe(setup.sessionId);
     expect(snapshot.balances).toEqual({

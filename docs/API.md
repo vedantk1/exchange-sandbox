@@ -1,6 +1,6 @@
 # Sandbox API
 
-The API is the authenticated boundary around the PostgreSQL exchange core. It uses ordinary HTTP requests, opaque cookie sessions, and exact decimal strings. All assets and balances are simulated. The trader and administrator browser workspaces use committed snapshots and authenticated live invalidations. Protected market orders, the liquidity bot, and session rollover remain separate milestones.
+The API is the authenticated boundary around the PostgreSQL exchange core. It uses ordinary HTTP requests, opaque cookie sessions, and exact decimal strings. All assets and balances are simulated. The trader and administrator browser workspaces use committed snapshots and authenticated live invalidations. An opt-in development simulator submits ordinary orders internally and exposes read-only workspace status. Protected market orders, administrator-operated liquidity-bot controls, and session rollover remain separate milestones.
 
 The trader interface and administrator controls use the same transaction boundary as the core. Administrator routes support the application; they do not establish a separate, stable automation product.
 
@@ -104,6 +104,18 @@ Book depth is capped at 50 price levels per side, shared executions at 100 recor
 Account workspaces include all open orders, 100 recent orders, 100 recent fills, 100 journal entries, and 100 recent durable commands. Rejected commands remain visible even when they created no order. Order details contain recorded creation/update times, cancellation reason, cumulative executed quantity, and exact cumulative fee calculated over the entire execution history, independently of the displayed fill limit. Weighted average execution price is display-only, rounded half up to nine decimal places using integer arithmetic. Activity exposes signed ledger movements by asset and available/reserved bucket. A trader sees a command reference only when it is their own command; another actor's reference is null. Administrator inspection retains both fill-side order IDs and command references.
 
 Candles use complete one-minute execution buckets before limiting to the latest 60 observed buckets, in ascending timestamp order. Missing minutes stay absent; no price or volume is fabricated. Shared market data contains no participant or order identities.
+
+When the active session has a persisted development simulator, `GET /api/workspace` includes optional `market.demoMarket` metadata:
+
+| Field       | Meaning                                                                                                                                       |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`   | Whether simulator intent is enabled; pause or fault can still prevent dispatch                                                                |
+| `status`    | `RUNNING`, `LIMITED_INVENTORY`, `STOPPED`, or `ERROR`; enabled simulators report `PAUSED` or `FAULTED` when the exchange gate blocks activity |
+| `updatedAt` | Timestamp of the last stored simulator-state update, not a guaranteed trade timestamp                                                         |
+
+The object is absent before simulator state exists for that session. `RUNNING` does not guarantee a fill in every cycle. The administrator workspace adds `makerAccountId` and `takerAccountId` under `admin.overview.demoMarket`, allowing the existing account-inspection routes to show their balances, orders, fills, and journal activity. These identities are omitted from trader workspace responses. The automated accounts have no login credentials and do not appear in the invited-trader list or participant counts. These fields belong to the workspace response; the standalone `/api/admin/overview` and `/api/market` responses retain their existing shapes.
+
+There are no simulator start, stop, refill, or price-setting HTTP endpoints. The local operator controls the opt-in development process as documented in the [development guide](DEVELOPMENT.md#development-demo-market). Administrator market pause/resume applies to automated and human order admission alike. Simulator status changes trigger shared workspace invalidation; its private commands and accounting remain subject to the existing ownership filters.
 
 After fetching the workspace, open one `EventSource` at `/api/events?sessionId=<sessionId>&cursor=<cursor>`. The cookie authenticates the stream; never put authentication tokens in its URL. Each `ready`, `invalidate`, `reset`, or `heartbeat` event contains only `{ sessionId, cursor }`. Its SSE `id` is the cursor. Native reconnect `Last-Event-ID` takes precedence over the query cursor. Refresh the authoritative workspace on invalidation, reset, reconnect, and heartbeat; a heartbeat can also refresh time-dependent invitation expiry and audit changes with no outbox entry. An `auth-lost` event closes the stream and rechecks the current browser session: password rotation may have installed a new cookie while the old stream still used the revoked session. Reconnect only when that current session belongs to the same actor; otherwise clear private client state. `unavailable` means reconnect and refresh when the service returns.
 

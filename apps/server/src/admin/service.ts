@@ -158,6 +158,35 @@ export class AdminService {
             .where('account_id', '=', account.account_id)
             .execute();
         }
+        // A stopped simulator may retain quotes while financial mutations are halted.
+        // Finish its cleanup under this recovery lock before reopening the market.
+        const stoppedSimulator = await tx
+          .selectFrom('demo_market')
+          .select(['maker_account_id', 'taker_account_id'])
+          .where('session_id', '=', input.sessionId)
+          .where('enabled', '=', false)
+          .executeTakeFirst();
+        if (stoppedSimulator) {
+          for (const accountId of [
+            stoppedSimulator.maker_account_id,
+            stoppedSimulator.taker_account_id,
+          ]) {
+            canceledOrders.push(
+              ...(await this.cancelAccountOrders(
+                tx,
+                input.sessionId,
+                accountId,
+                input.commandId,
+                'DEMO_MARKET_STOPPED',
+              )),
+            );
+          }
+          await tx
+            .updateTable('demo_market')
+            .set({ status: 'STOPPED', plan: '[]', next_command: 0, updated_at: new Date() })
+            .where('session_id', '=', input.sessionId)
+            .execute();
+        }
         const after = await reconcileDatabase(tx);
         if (!after.ok) throw new RecoveryError(after.issues.join('; '));
         await tx

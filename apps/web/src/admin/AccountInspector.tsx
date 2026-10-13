@@ -4,9 +4,9 @@ import { amount, date, label } from './format';
 import type { AdminAction, Trader } from './types';
 
 export function Status({ value }: { value: string }) {
-  const tone = ['ACTIVE', 'ACCEPTED', 'TRADING', 'FILLED', 'REDEEMED'].includes(value)
+  const tone = ['ACTIVE', 'ACCEPTED', 'TRADING', 'FILLED', 'REDEEMED', 'RUNNING'].includes(value)
     ? 'positive'
-    : ['SUSPENDED', 'REJECTED', 'REVOKED', 'FAULT'].includes(value)
+    : ['SUSPENDED', 'REJECTED', 'REVOKED', 'FAULT', 'FAULTED', 'ERROR'].includes(value)
       ? 'negative'
       : 'neutral';
   return <span className={`admin-status ${tone}`}>{label(value)}</span>;

@@ -4,9 +4,10 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from '
 import { createServer } from 'node:net';
 import pg from 'pg';
 
-const mode = process.argv[2];
+const demoMarket = process.argv[2] === 'dev-market';
+const mode = demoMarket ? 'dev' : process.argv[2];
 if (mode !== 'test' && mode !== 'demo' && mode !== 'dev' && mode !== 'setup' && mode !== 'reset') {
-  throw new Error('Usage: tsx scripts/with-postgres.ts <test|demo|dev|setup|reset>');
+  throw new Error('Usage: tsx scripts/with-postgres.ts <test|demo|dev|dev-market|setup|reset>');
 }
 
 const persistent = mode === 'dev' || mode === 'setup' || mode === 'reset';
@@ -147,6 +148,7 @@ async function runChild(connectionString: string): Promise<number> {
       env: {
         ...process.env,
         ...(mode === 'dev' ? { NODE_ENV: 'development' } : {}),
+        ...(demoMarket ? { DEMO_MARKET: '1' } : {}),
         [connectionVariable]: connectionString,
       },
     });

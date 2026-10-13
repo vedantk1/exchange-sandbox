@@ -285,6 +285,7 @@ async function adminWorkspace(
   sessionId: string,
   marketState: string,
   fault: string | null,
+  demoMarket: NonNullable<WorkspaceView['admin']>['overview']['demoMarket'],
 ): Promise<NonNullable<WorkspaceView['admin']>> {
   const counts = await sql<{
     traders: string;
@@ -339,6 +340,7 @@ async function adminWorkspace(
       counts: counts.rows[0]!,
       feeAccountId: system.find((row) => row.kind === 'FEE')?.id ?? null,
       issuanceAccountId: system.find((row) => row.kind === 'ISSUANCE')?.id ?? null,
+      ...(demoMarket ? { demoMarket } : {}),
     },
     traders: traders.map((row) => ({
       accountId: row.account_id,
@@ -389,17 +391,51 @@ export async function workspaceSnapshot(exchange: Exchange, token: string): Prom
     const storedFault = exchange.getRuntimeFault() ?? control.fault;
     const fault = role === 'ADMIN' ? storedFault : storedFault ? 'ACCOUNTING_FAULT' : null;
     const cursor = await currentCursor(tx, sessionId);
+    const demo = await tx
+      .selectFrom('demo_market')
+      .select(['enabled', 'status', 'updated_at', 'maker_account_id', 'taker_account_id'])
+      .where('session_id', '=', sessionId)
+      .executeTakeFirst();
+    const demoMarket = demo
+      ? {
+          enabled: demo.enabled,
+          status:
+            demo.enabled && storedFault
+              ? 'FAULTED'
+              : demo.enabled && control.market_state === 'PAUSED'
+                ? 'PAUSED'
+                : demo.status,
+          updatedAt: demo.updated_at.toISOString(),
+        }
+      : undefined;
     return {
       user: { accountId, handle, role },
       sessionId,
       marketState: control.market_state,
       fault,
       cursor,
-      market: await marketWorkspace(tx, sessionId),
+      market: {
+        ...(await marketWorkspace(tx, sessionId)),
+        ...(demoMarket ? { demoMarket } : {}),
+      },
       historyLimit: HISTORY_LIMIT,
       ...(role === 'TRADER'
         ? { account: await accountWorkspace(tx, sessionId, accountId) }
-        : { admin: await adminWorkspace(tx, sessionId, control.market_state, fault) }),
+        : {
+            admin: await adminWorkspace(
+              tx,
+              sessionId,
+              control.market_state,
+              fault,
+              demo && demoMarket
+                ? {
+                    ...demoMarket,
+                    makerAccountId: demo.maker_account_id,
+                    takerAccountId: demo.taker_account_id,
+                  }
+                : undefined,
+            ),
+          }),
     };
   });
 }
