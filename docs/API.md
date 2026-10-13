@@ -1,6 +1,6 @@
 # Sandbox API
 
-The API is the authenticated boundary around the PostgreSQL exchange core. It uses ordinary HTTP requests, opaque cookie sessions, and exact decimal strings. All assets and balances are simulated. The trader and administrator browser workspaces use committed snapshots and authenticated live invalidations. An administrator-managed simulator submits ordinary orders internally, with private inventory diagnostics and audited start/stop/funding controls. Protected market orders and session rollover remain separate milestones.
+The API is the authenticated boundary around the PostgreSQL exchange core. It uses ordinary HTTP requests, opaque cookie sessions, and exact decimal strings. All assets and balances are simulated. The trader and administrator browser workspaces use committed snapshots and authenticated live invalidations. An administrator-managed simulator submits ordinary orders internally, with private inventory diagnostics and audited start/stop/funding controls. Protected market orders use server-bound previews and the same command recovery path. Session rollover remains a later milestone.
 
 The trader interface and administrator controls use the same transaction boundary as the core. Administrator routes support the application; they do not establish a separate, stable automation product.
 
@@ -62,6 +62,8 @@ Paths below are relative to the configured server origin. All mutation bodies ar
 | GET    | `/api/me`                          | Read own balances, orders, and fills                                            |
 | GET    | `/api/orders/:orderId`             | Inspect an owned order and its fills; another account's order returns not found |
 | POST   | `/api/orders`                      | Submit `{ commandId, sessionId, side, quantity, price }`                        |
+| POST   | `/api/orders/market/preview`       | Preview a protected order with `{ sessionId, side, quantity }`                  |
+| POST   | `/api/orders/market`               | Confirm `{ commandId, sessionId, previewId }`                                   |
 | POST   | `/api/orders/:orderId/cancel`      | Cancel own remainder with `{ commandId, sessionId }`                            |
 | GET    | `/api/receipts/:commandId`         | Resolve own original trading command outcome                                    |
 | GET    | `/api/openapi.json`                | Read the authenticated OpenAPI description                                      |
@@ -98,6 +100,47 @@ Administrator results use `{ commandId, sessionId, sequence, status, code?, data
 HTTP errors use `{ code, message }`. Invalid inputs use 400, unauthenticated access 401, permission or CSRF/origin failures 403, missing private orders 404, conflicting command identities 409, unsupported content type 415, rate limits 429, and unavailable recovery or authentication capacity 503. Resolve a possibly committed command by its original identity after a transport failure or server error.
 
 Book depth is capped at 50 price levels per side, shared executions at 100 records, and account/order history responses at 100 records with `historyLimit` metadata. The workspace separately includes every open order in `account.openOrders` (at most 50), so an older open order remains cancellable after dropping out of recent history. These are bounded inspection views, not complete exports. Administrator lists are also bounded; pagination and CSV exports remain future work. Private trader fill responses omit counterparty order identities; administrator inspection retains both sides for reconciliation.
+
+## Protected market orders
+
+`POST /api/orders/market/preview` requires trader authentication, Origin/CSRF protection, and a healthy trading session. Send:
+
+```json
+{ "sessionId": "<current-session-id>", "side": "BUY", "quantity": "0.1000" }
+```
+
+The response contains `previewId`, `sessionId`, `side`, `quantity`, `referencePrice`, `guardPrice`, `createdAt`, `expiresAt`, `estimatedFilledQuantity`, `estimatedRemainingQuantity`, `estimatedNotional`, `estimatedFee`, nullable `estimatedAveragePrice`/`estimatedCancelReason`, and `reservation: {asset, amount}`. Amounts are decimal strings. Estimates use the current full book and normal self-trade prevention; average price alone is display-rounded to nine decimals. The preview reserves nothing.
+
+For a best ask of 50,000, a buy guard is 52,500. A 0.1000 BTC-SIM order requires 5,255.250000000 USD-SIM available at acceptance, including its maximum possible fee. Actual cost uses execution prices; excess commitment is released. A sell guard is the best bid multiplied by 0.95, rounded up to the cent. Buy guards round down. The minimum notional applies at the guard; an out-of-range guard fails explicitly.
+
+Confirm through `POST /api/orders/market`:
+
+```json
+{
+  "commandId": "<new-command-id>",
+  "sessionId": "<current-session-id>",
+  "previewId": "<reviewed-preview-id>"
+}
+```
+
+The request cannot override the preview's account, side, quantity, or guard. Preview lifetime is exactly 10 seconds from its server creation time. Expiry is checked using PostgreSQL wall time after acquiring the command lock, so an early-arriving request can still expire while queued. There is no automatic repricing. A valid admitted preview is single-use, including a durable insufficient-funds rejection. Reuse the same command identity and preview for retry/receipt recovery; an already committed result is returned even after expiry.
+
+The response is the ordinary `CommandResult`. New order results include `type: "MARKET"`; `price` is the confirmed guard. Filled orders have no remainder; otherwise status is `CANCELED`, with the unfilled `remaining` and zero `reserved`. Executions and fees remain valid for partially filled canceled orders. Read `GET /api/orders/:orderId` for exact cumulative fee, executed quantity, and average price. Market orders never rest and do not count toward the 50-open-order admission cap.
+
+| Outcome                                     | Meaning                                                      |
+| ------------------------------------------- | ------------------------------------------------------------ |
+| Preview HTTP 400 `NO_LIQUIDITY`             | No opposing quote exists to establish a guard                |
+| Preview HTTP 400 `PRICE_GUARD_OUT_OF_RANGE` | The fixed guard exceeds the supported price range            |
+| Command `PREVIEW_NOT_FOUND`                 | Preview is missing or belongs to another account/session     |
+| Command `PREVIEW_EXPIRED`                   | Review a new preview; no order was placed                    |
+| Command `PREVIEW_USED`                      | Another command already consumed this preview                |
+| Command `INSUFFICIENT_FUNDS`                | Full guarded commitment could not be reserved; no downsizing |
+| Cancellation `NO_LIQUIDITY`                 | Opposing liquidity disappeared after preview                 |
+| Cancellation `PRICE_GUARD_REACHED`          | Remaining opposing prices are outside the fixed guard        |
+| Cancellation `INSUFFICIENT_LIQUIDITY`       | Eligible depth could not fill the entire quantity            |
+| Cancellation `SELF_TRADE_PREVENTION`        | Execution encountered the account's own resting order        |
+
+Ordinary pause, fault, stale-session, authorization, and command-conflict rules also apply. A new preview request is not itself a financial command and has no command receipt; losing its response cannot place an order. Only confirmation enters the durable trading command path. Trader responses never contain counterparty identities.
 
 ## Workspace and live synchronization
 

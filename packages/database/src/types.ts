@@ -14,6 +14,24 @@ export type Asset = 'BTC-SIM' | 'USD-SIM';
 export type Bucket = 'AVAILABLE' | 'RESERVED';
 
 export interface Database {
+  market_previews: {
+    id: string;
+    account_id: string;
+    session_id: string;
+    side: 'BUY' | 'SELL';
+    quantity: ExactInteger;
+    reference_price: ExactInteger;
+    guard_price: ExactInteger;
+    created_at: Timestamp;
+    expires_at: Timestamp;
+  };
+  market_preview_uses: {
+    preview_id: string;
+    actor_id: string;
+    session_id: string;
+    command_id: string;
+    created_at: Timestamp;
+  };
   demo_market: {
     session_id: string;
     maker_account_id: string;

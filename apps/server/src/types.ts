@@ -12,6 +12,17 @@ export interface LimitCommand extends CommandIdentity {
   price: string;
 }
 
+export interface MarketPreviewInput {
+  accountId: string;
+  sessionId: string;
+  side: Side;
+  quantity: string;
+}
+
+export interface MarketCommand extends CommandIdentity {
+  previewId: string;
+}
+
 export interface CancelCommand extends CommandIdentity {
   orderId: string;
 }
@@ -20,6 +31,8 @@ export interface OrderView {
   id: string;
   accountId: string;
   side: Side;
+  /** Older durable limit-order receipts predate this field. */
+  type?: 'LIMIT' | 'MARKET';
   price: string;
   quantity: string;
   remaining: string;

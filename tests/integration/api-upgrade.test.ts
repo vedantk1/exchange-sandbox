@@ -63,6 +63,7 @@ it('upgrades a committed milestone-one installation without changing its account
       { name: '002_identity_and_controls' },
       { name: '003_demo_market' },
       { name: '004_simulator_controls' },
+      { name: '005_market_orders' },
     ]);
     expect((await context.sql.query('SELECT session_id FROM demo_market')).rows).toEqual([]);
     const snapshot = await exchange.snapshot(accountId);

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createDatabase, migrate, type Database } from '@sandbox/database';
+import type { MarketPreviewView } from '@sandbox/contracts';
 import {
   assertOrderSubmission,
   buyReservation,
@@ -9,6 +10,9 @@ import {
   formatQuantity,
   formatQuote,
   matchOrder,
+  matchMarketOrder,
+  marketPriceGuard,
+  summarizeMarketMatch,
   notional,
   parsePrice,
   parseQuantity,
@@ -25,6 +29,8 @@ import type {
   CommandResult,
   ExchangeOptions,
   LimitCommand,
+  MarketCommand,
+  MarketPreviewInput,
   Snapshot,
 } from './types.js';
 import { bookOrder, fillView, orderView } from './views.js';
@@ -503,160 +509,353 @@ export class Exchange {
           if (error instanceof DomainError) return rejection(error.code);
           throw error;
         }
-        const restingRows = await tx
-          .selectFrom('orders')
-          .selectAll()
-          .where('session_id', '=', input.sessionId)
-          .where('status', 'in', ACTIVE)
-          .execute();
-        if (restingRows.filter((order) => order.account_id === input.accountId).length >= 50)
-          return rejection('OPEN_ORDER_LIMIT');
-        const incoming: BookOrder = {
-          id: randomUUID(),
-          accountId: input.accountId,
-          side: input.side,
-          quantity,
-          remaining: quantity,
-          price,
-          sequence: BigInt(sequence),
-        };
-        const reserve = held(incoming);
-        const asset = input.side === 'BUY' ? 'USD-SIM' : 'BTC-SIM';
-        const balance = await tx
-          .selectFrom('balances')
-          .select('amount')
-          .where('session_id', '=', input.sessionId)
-          .where('account_id', '=', input.accountId)
-          .where('asset', '=', asset)
-          .where('bucket', '=', 'AVAILABLE')
-          .executeTakeFirst();
-        if (BigInt(balance?.amount ?? '0') < reserve) return rejection('INSUFFICIENT_FUNDS');
-        const match = matchOrder(incoming, restingRows.map(bookOrder));
-        await tx
-          .insertInto('orders')
-          .values({
-            id: incoming.id,
-            session_id: input.sessionId,
-            account_id: input.accountId,
-            side: input.side,
-            type: 'LIMIT',
-            status: 'OPEN',
-            quantity: quantity.toString(),
-            remaining_quantity: quantity.toString(),
-            price: price.toString(),
-            acceptance_sequence: sequence,
-            reserved_amount: reserve.toString(),
-            cancel_reason: null,
-          })
-          .execute();
-
-        const feeAccount = await tx
-          .selectFrom('accounts')
-          .select('id')
-          .where('kind', '=', 'FEE')
-          .executeTakeFirstOrThrow();
-        const postings = transferHold(input.accountId, asset, reserve);
-        const originals = new Map(restingRows.map((row) => [row.id, bookOrder(row)]));
-        const fills: CommandResult['fills'] = [];
-        for (const [fillIndex, fill] of match.fills.entries()) {
-          const maker = originals.get(fill.makerOrderId)!;
-          const buy = input.side === 'BUY' ? incoming : maker;
-          const sell = input.side === 'SELL' ? incoming : maker;
-          const value = notional(fill.quantity, fill.price);
-          const charge = fee(fill.quantity, fill.price);
-          const consumedHold = buyReservation(fill.quantity, buy.price);
-          const fillPostings: Posting[] = [
-            {
-              accountId: buy.accountId,
-              asset: 'USD-SIM',
-              bucket: 'RESERVED',
-              amount: -consumedHold,
-            },
-            {
-              accountId: buy.accountId,
-              asset: 'USD-SIM',
-              bucket: 'AVAILABLE',
-              amount: consumedHold - value - charge,
-            },
-            {
-              accountId: sell.accountId,
-              asset: 'USD-SIM',
-              bucket: 'AVAILABLE',
-              amount: value - charge,
-            },
-            {
-              accountId: feeAccount.id,
-              asset: 'USD-SIM',
-              bucket: 'AVAILABLE',
-              amount: 2n * charge,
-            },
-            {
-              accountId: sell.accountId,
-              asset: 'BTC-SIM',
-              bucket: 'RESERVED',
-              amount: -fill.quantity,
-            },
-            {
-              accountId: buy.accountId,
-              asset: 'BTC-SIM',
-              bucket: 'AVAILABLE',
-              amount: fill.quantity,
-            },
-          ];
-          postings.push(...fillPostings);
-          const row = await tx
-            .insertInto('fills')
-            .values({
-              id: randomUUID(),
-              session_id: input.sessionId,
-              maker_order_id: maker.id,
-              taker_order_id: incoming.id,
-              buy_order_id: buy.id,
-              sell_order_id: sell.id,
-              quantity: fill.quantity.toString(),
-              price: fill.price.toString(),
-              notional: value.toString(),
-              buyer_fee: charge.toString(),
-              seller_fee: charge.toString(),
-              sequence,
-              fill_index: fillIndex,
-            })
-            .returningAll()
-            .executeTakeFirstOrThrow();
-          fills.push(fillView(row));
-        }
-        for (const maker of match.makers) {
-          await tx
-            .updateTable('orders')
-            .set({
-              remaining_quantity: maker.remaining.toString(),
-              status: maker.status,
-              reserved_amount: held(maker).toString(),
-              updated_at: new Date(),
-            })
-            .where('id', '=', maker.id)
-            .execute();
-        }
-        const canceled = match.incoming.status === 'CANCELED';
-        if (canceled) postings.push(...transferHold(input.accountId, asset, -held(match.incoming)));
-        const order = await tx
-          .updateTable('orders')
-          .set({
-            remaining_quantity: match.incoming.remaining.toString(),
-            status: match.incoming.status,
-            reserved_amount: (canceled ? 0n : held(match.incoming)).toString(),
-            cancel_reason: match.incoming.cancelReason,
-            updated_at: new Date(),
-          })
-          .where('id', '=', incoming.id)
-          .returningAll()
-          .executeTakeFirstOrThrow();
-        await postJournal(tx, input.sessionId, input.commandId, 'PLACE_LIMIT', postings);
-        return { status: 'ACCEPTED', order: orderView(order), fills };
+        return this.executeOrder(tx, input, sequence, quantity, price, 'LIMIT');
       },
       accessToken,
       simulatorGeneration,
     );
+  }
+
+  /** Read and bind a price guard under the writer lock without reserving any balance. */
+  async previewMarket(input: MarketPreviewInput, accessToken?: string): Promise<MarketPreviewView> {
+    input = { ...input };
+    uuid(input.accountId);
+    uuid(input.sessionId);
+    if (input.side !== 'BUY' && input.side !== 'SELL')
+      throw new DomainError('INVALID_SIDE', 'Side must be BUY or SELL.');
+    const quantity = parseQuantity(input.quantity);
+    return this.financialTransaction(async (tx, control) => {
+      if (accessToken !== undefined) {
+        const actor = await requirePrincipal(tx, accessToken, 'TRADER');
+        if (actor.accountId !== input.accountId)
+          throw new DomainError('NOT_ORDER_OWNER', 'Actor does not own this account.');
+      }
+      if (control.fault) throw new RecoveryError(control.fault);
+      if (control.active_session_id !== input.sessionId)
+        throw new DomainError('STALE_SESSION', 'The trading session has changed.');
+      if (control.market_state !== 'TRADING')
+        throw new DomainError('MARKET_PAUSED', 'Trading is paused.');
+      const account = await tx
+        .selectFrom('accounts')
+        .select('kind')
+        .where('id', '=', input.accountId)
+        .executeTakeFirst();
+      if (account?.kind !== 'TRADER')
+        throw new DomainError('INVALID_ACCOUNT', 'A known trader is required.');
+      const rows = await tx
+        .selectFrom('orders')
+        .selectAll()
+        .where('session_id', '=', input.sessionId)
+        .where('status', 'in', ACTIVE)
+        .execute();
+      const book = rows.map(bookOrder);
+      const opposing = book.filter((order) => order.side !== input.side);
+      if (opposing.length === 0)
+        throw new DomainError('NO_LIQUIDITY', 'There are no opposing quotes to establish a guard.');
+      const referencePrice = opposing.reduce(
+        (best, order) =>
+          input.side === 'BUY'
+            ? order.price < best
+              ? order.price
+              : best
+            : order.price > best
+              ? order.price
+              : best,
+        opposing[0]!.price,
+      );
+      const guard = marketPriceGuard(input.side, referencePrice);
+      assertOrderSubmission(quantity, guard);
+      const previewId = randomUUID();
+      const estimate = summarizeMarketMatch(
+        matchMarketOrder(
+          {
+            id: previewId,
+            accountId: input.accountId,
+            side: input.side,
+            quantity,
+            remaining: quantity,
+            price: guard,
+            sequence: BigInt(control.next_sequence),
+          },
+          book,
+        ),
+      );
+      // PostgreSQL is the authority for expiry, including when a client clock is wrong.
+      const { now } = (await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(tx))
+        .rows[0]!;
+      const expires = new Date(now.getTime() + 10_000);
+      await tx
+        .insertInto('market_previews')
+        .values({
+          id: previewId,
+          account_id: input.accountId,
+          session_id: input.sessionId,
+          side: input.side,
+          quantity: quantity.toString(),
+          reference_price: referencePrice.toString(),
+          guard_price: guard.toString(),
+          created_at: now,
+          expires_at: expires,
+        })
+        .execute();
+      return {
+        previewId,
+        sessionId: input.sessionId,
+        side: input.side,
+        quantity: formatQuantity(quantity),
+        referencePrice: formatPrice(referencePrice),
+        guardPrice: formatPrice(guard),
+        createdAt: now.toISOString(),
+        expiresAt: expires.toISOString(),
+        estimatedFilledQuantity: formatQuantity(estimate.filledQuantity),
+        estimatedRemainingQuantity: formatQuantity(estimate.remainingQuantity),
+        estimatedNotional: formatQuote(estimate.notional),
+        estimatedFee: formatQuote(estimate.fee),
+        estimatedAveragePrice: estimate.averagePrice,
+        estimatedCancelReason: estimate.cancelReason,
+        reservation:
+          input.side === 'BUY'
+            ? { asset: 'USD-SIM', amount: formatQuote(buyReservation(quantity, guard)) }
+            : { asset: 'BTC-SIM', amount: formatQuantity(quantity) },
+      };
+    });
+  }
+
+  /** A confirmed preview supplies every trading parameter; the caller cannot widen its guard. */
+  async placeMarket(input: MarketCommand, accessToken?: string): Promise<CommandResult> {
+    input = { ...input };
+    uuid(input.accountId);
+    uuid(input.commandId);
+    uuid(input.sessionId);
+    uuid(input.previewId);
+    const hash = fingerprint({
+      type: 'PLACE_MARKET',
+      accountId: input.accountId,
+      sessionId: input.sessionId,
+      previewId: input.previewId,
+    });
+    return this.command(
+      input,
+      hash,
+      async (tx, control, sequence) => {
+        if (control.market_state !== 'TRADING') return rejection('MARKET_PAUSED');
+        const preview = await tx
+          .selectFrom('market_previews')
+          .selectAll()
+          // CURRENT_TIMESTAMP is transaction-start time and would admit a queued expired preview.
+          .select(sql<boolean>`expires_at <= clock_timestamp()`.as('expired'))
+          .where('id', '=', input.previewId)
+          .where('account_id', '=', input.accountId)
+          .where('session_id', '=', input.sessionId)
+          .executeTakeFirst();
+        if (!preview) return rejection('PREVIEW_NOT_FOUND');
+        const used = await tx
+          .selectFrom('market_preview_uses')
+          .select('preview_id')
+          .where('preview_id', '=', input.previewId)
+          .executeTakeFirst();
+        if (used) return rejection('PREVIEW_USED');
+        if (preview.expired) return rejection('PREVIEW_EXPIRED');
+        const quantity = BigInt(preview.quantity);
+        const guard = BigInt(preview.guard_price);
+        assertOrderSubmission(quantity, guard);
+        // The receipt and use are committed together, including durable insufficient-funds results.
+        await tx
+          .insertInto('market_preview_uses')
+          .values({
+            preview_id: input.previewId,
+            actor_id: input.accountId,
+            session_id: input.sessionId,
+            command_id: input.commandId,
+          })
+          .execute();
+        return this.executeOrder(
+          tx,
+          { ...input, side: preview.side },
+          sequence,
+          quantity,
+          guard,
+          'MARKET',
+        );
+      },
+      accessToken,
+    );
+  }
+
+  /** One settlement path keeps limit and protected immediate orders on identical accounting. */
+  private async executeOrder(
+    tx: Transaction<Database>,
+    input: CommandIdentity & { side: 'BUY' | 'SELL' },
+    sequence: string,
+    quantity: bigint,
+    price: bigint,
+    type: 'LIMIT' | 'MARKET',
+  ): Promise<Outcome> {
+    const restingRows = await tx
+      .selectFrom('orders')
+      .selectAll()
+      .where('session_id', '=', input.sessionId)
+      .where('status', 'in', ACTIVE)
+      .execute();
+    if (
+      type === 'LIMIT' &&
+      restingRows.filter((order) => order.account_id === input.accountId).length >= 50
+    )
+      return rejection('OPEN_ORDER_LIMIT');
+    const incoming: BookOrder = {
+      id: randomUUID(),
+      accountId: input.accountId,
+      side: input.side,
+      quantity,
+      remaining: quantity,
+      price,
+      sequence: BigInt(sequence),
+    };
+    const reserve = held(incoming);
+    const asset = input.side === 'BUY' ? 'USD-SIM' : 'BTC-SIM';
+    const balance = await tx
+      .selectFrom('balances')
+      .select('amount')
+      .where('session_id', '=', input.sessionId)
+      .where('account_id', '=', input.accountId)
+      .where('asset', '=', asset)
+      .where('bucket', '=', 'AVAILABLE')
+      .executeTakeFirst();
+    if (BigInt(balance?.amount ?? '0') < reserve) return rejection('INSUFFICIENT_FUNDS');
+    const match = (type === 'MARKET' ? matchMarketOrder : matchOrder)(
+      incoming,
+      restingRows.map(bookOrder),
+    );
+    await tx
+      .insertInto('orders')
+      .values({
+        id: incoming.id,
+        session_id: input.sessionId,
+        account_id: input.accountId,
+        side: input.side,
+        type,
+        status: match.incoming.status,
+        quantity: quantity.toString(),
+        remaining_quantity: match.incoming.remaining.toString(),
+        price: price.toString(),
+        acceptance_sequence: sequence,
+        reserved_amount: (match.incoming.status === 'CANCELED'
+          ? 0n
+          : held(match.incoming)
+        ).toString(),
+        cancel_reason: match.incoming.cancelReason,
+      })
+      .execute();
+
+    const feeAccount = await tx
+      .selectFrom('accounts')
+      .select('id')
+      .where('kind', '=', 'FEE')
+      .executeTakeFirstOrThrow();
+    const postings = transferHold(input.accountId, asset, reserve);
+    const originals = new Map(restingRows.map((row) => [row.id, bookOrder(row)]));
+    const fills: CommandResult['fills'] = [];
+    for (const [fillIndex, fill] of match.fills.entries()) {
+      const maker = originals.get(fill.makerOrderId)!;
+      const buy = input.side === 'BUY' ? incoming : maker;
+      const sell = input.side === 'SELL' ? incoming : maker;
+      const value = notional(fill.quantity, fill.price);
+      const charge = fee(fill.quantity, fill.price);
+      const consumedHold = buyReservation(fill.quantity, buy.price);
+      const fillPostings: Posting[] = [
+        {
+          accountId: buy.accountId,
+          asset: 'USD-SIM',
+          bucket: 'RESERVED',
+          amount: -consumedHold,
+        },
+        {
+          accountId: buy.accountId,
+          asset: 'USD-SIM',
+          bucket: 'AVAILABLE',
+          amount: consumedHold - value - charge,
+        },
+        {
+          accountId: sell.accountId,
+          asset: 'USD-SIM',
+          bucket: 'AVAILABLE',
+          amount: value - charge,
+        },
+        {
+          accountId: feeAccount.id,
+          asset: 'USD-SIM',
+          bucket: 'AVAILABLE',
+          amount: 2n * charge,
+        },
+        {
+          accountId: sell.accountId,
+          asset: 'BTC-SIM',
+          bucket: 'RESERVED',
+          amount: -fill.quantity,
+        },
+        {
+          accountId: buy.accountId,
+          asset: 'BTC-SIM',
+          bucket: 'AVAILABLE',
+          amount: fill.quantity,
+        },
+      ];
+      postings.push(...fillPostings);
+      const row = await tx
+        .insertInto('fills')
+        .values({
+          id: randomUUID(),
+          session_id: input.sessionId,
+          maker_order_id: maker.id,
+          taker_order_id: incoming.id,
+          buy_order_id: buy.id,
+          sell_order_id: sell.id,
+          quantity: fill.quantity.toString(),
+          price: fill.price.toString(),
+          notional: value.toString(),
+          buyer_fee: charge.toString(),
+          seller_fee: charge.toString(),
+          sequence,
+          fill_index: fillIndex,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      fills.push(fillView(row));
+    }
+    for (const maker of match.makers) {
+      await tx
+        .updateTable('orders')
+        .set({
+          remaining_quantity: maker.remaining.toString(),
+          status: maker.status,
+          reserved_amount: held(maker).toString(),
+          updated_at: new Date(),
+        })
+        .where('id', '=', maker.id)
+        .execute();
+    }
+    const canceled = match.incoming.status === 'CANCELED';
+    if (canceled) postings.push(...transferHold(input.accountId, asset, -held(match.incoming)));
+    const order = await tx
+      .updateTable('orders')
+      .set({
+        remaining_quantity: match.incoming.remaining.toString(),
+        status: match.incoming.status,
+        reserved_amount: (canceled ? 0n : held(match.incoming)).toString(),
+        cancel_reason: match.incoming.cancelReason,
+        updated_at: new Date(),
+      })
+      .where('id', '=', incoming.id)
+      .returningAll()
+      .executeTakeFirstOrThrow();
+    await postJournal(
+      tx,
+      input.sessionId,
+      input.commandId,
+      type === 'MARKET' ? 'PLACE_MARKET' : 'PLACE_LIMIT',
+      postings,
+    );
+    return { status: 'ACCEPTED', order: orderView(order), fills };
   }
 
   async cancel(

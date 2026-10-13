@@ -21,6 +21,7 @@ export function orderView(order: Selectable<Database['orders']>): OrderView {
     accountId: order.account_id,
     side: order.side,
     price: formatPrice(BigInt(order.price)),
+    type: order.type,
     quantity: formatQuantity(BigInt(order.quantity)),
     remaining: formatQuantity(BigInt(order.remaining_quantity)),
     status: order.status,

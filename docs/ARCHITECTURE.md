@@ -1,6 +1,6 @@
 # System architecture and stack
 
-Status: accepted architecture and TypeScript stack, based on the accepted [MVP](MVP.md). Milestones 1–3 implement the trading core, PostgreSQL persistence/recovery, invitation-only authentication, trader/admin HTTP routes and screens, audited controls, and live delivery. The two-account simulator now has administrator lifecycle/funding controls and browser regression coverage. Session rollover, protected market orders, exports, deployment, and performance acceptance remain future work. Exact dependencies are pinned in the manifests and lockfile. See [development and validation](DEVELOPMENT.md) and the [HTTP API](API.md) for the implemented boundary.
+Status: accepted architecture and TypeScript stack, based on the accepted [MVP](MVP.md). Milestones 1–3 implement the trading core, PostgreSQL persistence/recovery, invitation-only authentication, trader/admin HTTP routes and screens, audited controls, and live delivery. The two-account simulator now has administrator lifecycle/funding controls and browser regression coverage. Protected market orders now share the transactional engine and have server-bound previews. Session rollover, exports, deployment, and performance acceptance remain future work. Exact dependencies are pinned in the manifests and lockfile. See [development and validation](DEVELOPMENT.md) and the [HTTP API](API.md) for the implemented boundary.
 
 Use a modular TypeScript application, a React interface, and PostgreSQL as the authoritative store. The browser uses ordinary HTTP commands and queries and server-sent events for live updates. The implemented core uses exact integer arithmetic and one serialized database transaction for each exchange command. The initial deployment has one application process and one database.
 
@@ -101,7 +101,7 @@ packages/domain/          Pure trading and accounting rules
 packages/contracts/       Transport schemas and generated client types
 packages/database/        Migrations, typed SQL, transaction adapters
 tests/integration/        PostgreSQL concurrency and recovery cases
-tests/e2e/                Trader and admin browser flows
+tests/browser/            Trader and admin browser flows
 docs/                     Product and technical decisions
 ```
 
@@ -178,7 +178,17 @@ Candles can initially be derived from executions. If an incrementally maintained
 
 ## Market previews and API behavior
 
-The current interface supports limit orders with an exact client-side review of the requested price/quantity, fees, and maximum reservation. It does not guarantee a fill or reserve funds before submission. Protected market orders and their server-issued previews are a later increment: the server will create a preview from a consistent local-book snapshot bound to actor, exchange session, side, quantity, guard, and expiry. Admission must recheck expiry after acquiring the command lock and must not trust a browser-calculated guard or silently reanchor the price.
+Limit orders retain their exact client-side review of price, quantity, fees, and maximum reservation. Protected market orders use `POST /api/orders/market/preview` to create a server-owned record from the authoritative book while holding the installation lock. Previewing reserves neither funds nor liquidity. The 5% guard uses integer cents: floor for maximum buy, ceiling for minimum sell. The same pure matcher produces estimates and executes orders, including self-trade prevention.
+
+Migration `005_market_orders` stores immutable preview parameters and a separate immutable use record linking one preview to its command receipt. The server fixes a 10-second lifetime using PostgreSQL time. Confirmation carries only session, command, and preview identities. After acquiring the command lock and rechecking authorization, the existing receipt resolves any replay before expiry is considered. A new confirmation checks actor/session binding, prior consumption, and `clock_timestamp()` against expiry; transaction-start `CURRENT_TIMESTAMP` would incorrectly admit previews that expired while queued.
+
+Market orders use the same settlement routine as limit orders. A buy must reserve its entire requested quantity at the confirmed guard plus fees; a sell reserves its entire base quantity. Eligible prices execute with ordinary price/time priority and maker prices. Unfilled quantity is canceled immediately, with a precise reason and reservation release in the same transaction. The database prohibits resting market orders, and reconciliation verifies their preview/receipt binding and forbids market orders acting as makers. The 50-resting-order cap still applies to limit orders; an immediate market order does not add to that count.
+
+Preview use, orders, fills, accounting, receipt, and outbox records commit atomically. Insufficient funds consume a valid admitted preview with its durable rejection; malformed, unavailable, expired, foreign, already-used, and paused requests do not create a trade. An accounting failure rolls back financial effects and preview use while preserving the existing fault/receipt behavior. The client retains the original confirmed preview ID in command recovery storage and never fetches a replacement to retry an uncertain trade.
+
+The browser countdown uses elapsed time conservatively, while server admission is authoritative. Estimates are explicitly separate from guaranteed price bounds and can differ from execution after liquidity changes. Actual outcomes show executed quantity, fees, average price, canceled remainder, and reason. Historical receipts predating the order-type discriminator remain readable; current snapshots include `LIMIT` or `MARKET`, with the order price serving as the fixed guard for market orders.
+
+Previews and use records are retained with session history in this increment. Expired previews cannot execute. Retention/archival and workload sizing still need measurement before a public deployment; no cleanup silently removes evidence needed for command recovery.
 
 REST is the supported developer interface, with OpenAPI schemas for exact decimal strings, command IDs, session IDs, stable error codes, and order states. Cookie-jar examples can authenticate and trade without introducing an API-key product. Internal administrator endpoints support the UI; a separately supported administrator automation API remains outside the MVP.
 
@@ -285,9 +295,10 @@ Implementation order:
 1. Exact domain values, matching/accounting rules, and technical numeric bounds — implemented.
 2. PostgreSQL schema and transactional vertical slice proving the MVP partial-fill/cancel example, duplicate-command recovery, and invariant checks — implemented; see the development guide for test evidence and limitations.
 3. Invitations/authentication, HTTP contracts, administrator gates, grants, and access-recovery cases — implemented. Session rollover remains a separate increment.
-4. Trader/admin UI, limit-order review, live synchronization, and explainable bounded history — implemented. Protected market-order previews remain a separate increment.
+4. Trader/admin UI, limit-order review, live synchronization, and explainable bounded history — implemented. Protected market-order previews and terminal outcomes are now implemented.
 5. Administrator-managed two-account simulator, inventory/funding, sparse-chart explanations, and browser CI regression coverage — implemented.
-6. Protected market orders, session rollover, exports, packaged self-host setup, restore drill, full-release browser acceptance, and measured workload validation.
+6. Protected market orders, immutable 10-second previews, and recovery/browser regressions — implemented.
+7. Session rollover, exports, packaged self-host setup, restore drill, full-release browser acceptance, and measured workload validation.
 
 These increments are implementation order, not separate weakened definitions of done. Accounting and recovery are prerequisites for the polished trading experience.
 

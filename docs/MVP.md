@@ -2,7 +2,7 @@
 
 Status: MVP product scope accepted. The defaults below define the agreed exchange sandbox, with real funds excluded. They are requirements, not claims about implemented features. The accepted technical design is recorded separately in [System architecture and stack](ARCHITECTURE.md); [development and validation](DEVELOPMENT.md) tracks the implemented milestone.
 
-The accepted automation design is the two-account demo market simulator below. It replaces the earlier single quoting-bot proposal. Its administrator controls, inventory visibility, and audited funding are implemented; session rollover, protected market orders, and exports remain future work.
+The accepted automation design is the two-account demo market simulator below. It replaces the earlier single quoting-bot proposal. Its administrator controls, inventory visibility, and audited funding are implemented. Protected market orders now implement the flow below; session rollover and exports remain future work.
 
 The product lets a developer or technical learner run a small exchange, trade virtual assets, and inspect how orders, executions, fees, and balances change. Its primary value is understandable exchange behavior. It does not promise realistic trading returns or reproduce an external exchange's liquidity.
 
@@ -87,6 +87,12 @@ An invalid price or quantity, insufficient funds, account restriction, paused ma
 A market order never remains on the book. If no opposing quote exists, no market preview is available. If liquidity disappears after the preview, an accepted order can finish canceled with zero fills. Insufficient funds for the full protected buy commitment rejects the order instead of silently reducing its size.
 
 The guard bounds the price of executed units. It does not guarantee execution of the entire quantity or a minimum total sale receipt. The review distinguishes estimates from that price guarantee.
+
+The server stores a preview bound to the account, session, side, quantity, reference price, and guard. Confirmation sends that preview's identity, never a replacement browser-calculated price. Expiry is checked after the command acquires the trading lock. A valid admitted preview belongs to one command, including an insufficient-funds rejection. Another preview is required for a new attempt; retries of the original command recover the original receipt even after expiry. A paused-market rejection does not consume an otherwise valid preview, but it remains subject to the same deadline.
+
+The screen shows estimated filled/unfilled quantity, execution value, fee, and average price, separately from the fixed maximum buy or minimum sell price and required reservation. Quantities, fees, and reservations use exact amounts; an average is display-only, rounded half up to nine decimals. A visible countdown disables expired confirmation and requires an explicit new preview. Receiving a preview does not reserve liquidity or funds.
+
+A fully executed market order is Filled. Any unfilled quantity ends Canceled, including partially executed orders, with zero remaining reservation. Cancellation distinguishes no opposing liquidity, insufficient depth within the available book, prices outside the guard, and self-trade prevention. These results remain visible in order detail and history. If the computed guard exceeds the supported technical price range, preview fails explicitly rather than changing protection silently.
 
 ### Cancel and understand the result
 

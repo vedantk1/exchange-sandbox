@@ -6,7 +6,8 @@ import type { Exchange } from '../../apps/server/src/exchange.js';
 export async function killAtTransactionBoundary(
   databaseUrl: string,
   stage: 'beforeCommit' | 'afterCommit',
-  command: Parameters<Exchange['placeLimit']>[0],
+  command: Parameters<Exchange['placeLimit']>[0] | Parameters<Exchange['placeMarket']>[0],
+  operation: 'limit' | 'market' = 'limit',
 ) {
   const child = spawn(
     process.execPath,
@@ -16,6 +17,7 @@ export async function killAtTransactionBoundary(
         ...process.env,
         TEST_DATABASE_URL: databaseUrl,
         EXCHANGE_CRASH_STAGE: stage,
+        EXCHANGE_CRASH_OPERATION: operation,
         EXCHANGE_CRASH_COMMAND: JSON.stringify(command),
       },
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],

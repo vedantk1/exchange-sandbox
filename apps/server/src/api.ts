@@ -353,6 +353,39 @@ export async function buildApi(options: ApiOptions) {
     },
   );
   app.post(
+    '/api/orders/market/preview',
+    {
+      preHandler: protect('TRADER'),
+      schema: {
+        security,
+        body: S.MarketPreviewRequest,
+        response: { 200: S.MarketPreview, ...errors },
+      },
+    },
+    async (request) => {
+      const actor = await auth.authenticate(token(request));
+      return exchange.previewMarket(
+        { ...request.body, accountId: actor.accountId },
+        token(request),
+      );
+    },
+  );
+  app.post(
+    '/api/orders/market',
+    {
+      preHandler: protect('TRADER'),
+      schema: {
+        security,
+        body: S.MarketOrderCommand,
+        response: { 200: S.CommandResult, ...errors },
+      },
+    },
+    async (request) => {
+      const actor = await auth.authenticate(token(request));
+      return exchange.placeMarket({ ...request.body, accountId: actor.accountId }, token(request));
+    },
+  );
+  app.post(
     '/api/orders/:orderId/cancel',
     {
       preHandler: protect('TRADER'),

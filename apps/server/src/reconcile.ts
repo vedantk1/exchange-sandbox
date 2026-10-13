@@ -161,6 +161,27 @@ export async function reconcileDatabase(
       `,
     },
     {
+      code: 'MARKET_PREVIEW_ORDER',
+      query: sql`
+        select o.id::text as detail from orders o
+        where o.type = 'MARKET' and not exists (
+          select 1 from market_preview_uses u
+          join market_previews p on p.id = u.preview_id
+          join receipts r on r.actor_id = u.actor_id and r.command_id = u.command_id
+          where u.actor_id = o.account_id and u.session_id = o.session_id
+            and p.account_id = o.account_id and p.session_id = o.session_id
+            and p.side = o.side and p.quantity = o.quantity and p.guard_price = o.price
+            and r.session_id = o.session_id and r.result->>'status' = 'ACCEPTED'
+            and r.result->'order'->>'id' = o.id::text
+            and r.result->'order'->>'type' = 'MARKET'
+        )
+        union all
+        select u.preview_id::text as detail from market_preview_uses u
+        join receipts r on r.actor_id = u.actor_id and r.command_id = u.command_id
+        where r.session_id <> u.session_id
+      `,
+    },
+    {
       code: 'FILL_RULES',
       query: sql`
         select f.id::text as detail from fills f
@@ -175,6 +196,7 @@ export async function reconcileDatabase(
           or b.side <> 'BUY' or s.side <> 'SELL' or b.account_id = s.account_id
           or f.price <> m.price or f.price > b.price or f.price < s.price
           or m.acceptance_sequence >= t.acceptance_sequence
+          or m.type <> 'LIMIT'
           or f.sequence <> t.acceptance_sequence
           or f.session_id <> b.session_id or f.session_id <> s.session_id
           or f.session_id <> m.session_id or f.session_id <> t.session_id

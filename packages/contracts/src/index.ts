@@ -59,6 +59,39 @@ export const OrderCommand = Type.Object(
   },
   { additionalProperties: false },
 );
+export const MarketPreviewRequest = Type.Object(
+  {
+    sessionId: Id,
+    side: Type.Union([Type.Literal('BUY'), Type.Literal('SELL')]),
+    quantity: Decimal,
+  },
+  { additionalProperties: false },
+);
+export const MarketOrderCommand = Type.Object(
+  { commandId: Id, sessionId: Id, previewId: Id },
+  { additionalProperties: false },
+);
+export const MarketPreview = Type.Object({
+  previewId: Id,
+  sessionId: Id,
+  side: Type.Union([Type.Literal('BUY'), Type.Literal('SELL')]),
+  quantity: Type.String(),
+  referencePrice: Type.String(),
+  guardPrice: Type.String(),
+  createdAt: Type.String(),
+  expiresAt: Type.String(),
+  estimatedFilledQuantity: Type.String(),
+  estimatedRemainingQuantity: Type.String(),
+  estimatedNotional: Type.String(),
+  estimatedFee: Type.String(),
+  estimatedAveragePrice: Type.Union([Type.String(), Type.Null()]),
+  estimatedCancelReason: Type.Union([Type.String(), Type.Null()]),
+  reservation: Type.Object({
+    asset: Type.Union([Type.Literal('BTC-SIM'), Type.Literal('USD-SIM')]),
+    amount: Type.String(),
+  }),
+});
+export type MarketPreviewView = Static<typeof MarketPreview>;
 export const CancelCommand = Type.Object(
   { commandId: Id, sessionId: Id },
   { additionalProperties: false },
@@ -79,6 +112,8 @@ export const Order = Type.Object({
   id: Id,
   accountId: Id,
   side: Type.Union([Type.Literal('BUY'), Type.Literal('SELL')]),
+  // Historical command receipts predate the discriminator. Current reads always include it.
+  type: Type.Optional(Type.Union([Type.Literal('LIMIT'), Type.Literal('MARKET')])),
   price: Type.String(),
   quantity: Type.String(),
   remaining: Type.String(),

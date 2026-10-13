@@ -19,6 +19,12 @@ const exchange = await Exchange.open(databaseUrl, {
     },
   },
 });
-await exchange.placeLimit(command);
+if (process.env.EXCHANGE_CRASH_OPERATION === 'market') {
+  await exchange.placeMarket(
+    JSON.parse(serializedCommand) as Parameters<Exchange['placeMarket']>[0],
+  );
+} else {
+  await exchange.placeLimit(command);
+}
 await exchange.close();
 throw new Error('The worker passed its requested crash boundary without being killed.');
