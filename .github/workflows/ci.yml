@@ -1,4 +1,4 @@
-name: Verify exchange backend
+name: Verify exchange sandbox
 
 on:
   push:
@@ -39,3 +39,4 @@ jobs:
       - run: pnpm format:check
       - run: pnpm test
       - run: pnpm test:integration:external
+      - run: pnpm build:web

@@ -1,6 +1,6 @@
 # Sandbox API
 
-The API is the authenticated boundary around the PostgreSQL exchange core. It uses ordinary HTTP requests, opaque cookie sessions, and exact decimal strings. All assets and balances are simulated. Browser screens, live event delivery, protected market orders, the liquidity bot, and session rollover are separate milestones.
+The API is the authenticated boundary around the PostgreSQL exchange core. It uses ordinary HTTP requests, opaque cookie sessions, and exact decimal strings. All assets and balances are simulated. The trader and administrator browser workspaces use committed snapshots and authenticated live invalidations. Protected market orders, the liquidity bot, and session rollover remain separate milestones.
 
 The trader interface and administrator controls use the same transaction boundary as the core. Administrator routes support the application; they do not establish a separate, stable automation product.
 
@@ -12,7 +12,7 @@ Passwords use Argon2id. Session, invitation, and recovery tokens are random bear
 
 Authenticated reads require the session cookie. Browser mutations also require the configured origin and the session's CSRF token. Login and token redemption validate the origin before handling credentials. An API client must keep its cookie jar and CSRF token together. Session cookies are HttpOnly and SameSite; HTTPS deployments require Secure cookies. The documented loopback development configuration is the only plaintext-HTTP exception.
 
-The server derives the actor from the authenticated session. Clients cannot select a trading account by adding an account identifier to an order. Trader reads and commands are scoped to that actor, while explicitly authorized administrator routes can inspect participants and apply controls.
+Browser clients can send an optional `X-Sandbox-Actor` header containing the identity of their rendered workspace. If another tab changed the shared cookie to a different account, a mismatch returns 401 `SESSION_CHANGED` before any protected effect. This header never selects or authenticates an actor. The server derives the actor from the authenticated session. Clients cannot select a trading account by adding an account identifier to an order. Trader reads and commands are scoped to that actor, while explicitly authorized administrator routes can inspect participants and apply controls.
 
 Signing out revokes the current session but leaves existing orders active. Password changes revoke other sessions and rotate the current session. Password recovery revokes all prior sessions. Suspension revokes access and cancels unfilled order quantities; completed fills remain valid. Reinstatement does not recreate orders or repeat the current session's starting allocation.
 
@@ -48,43 +48,46 @@ An accounting fault is distinct from an operator pause. Reads and access revocat
 
 Paths below are relative to the configured server origin. All mutation bodies are JSON, and unrecognized fields are rejected. Authentication returns a `user` object, a CSRF token, and an expiry alongside the session cookies. Monetary fields in every response remain decimal strings.
 
-| Method | Path                          | Purpose                                                                         |
-| ------ | ----------------------------- | ------------------------------------------------------------------------------- |
-| POST   | `/api/auth/login`             | Sign in with `{ handle, password }`                                             |
-| GET    | `/api/auth/session`           | Read the authenticated identity                                                 |
-| POST   | `/api/auth/logout`            | Revoke the current session; send `{}`                                           |
-| POST   | `/api/auth/password`          | Change password with `{ currentPassword, newPassword }` and rotate the session  |
-| POST   | `/api/auth/redeem`            | Consume an invitation with `{ token, handle, password }`                        |
-| POST   | `/api/auth/recover`           | Consume a recovery token with `{ token, password }`                             |
-| GET    | `/api/market`                 | Read session, market state, shared order-book depth, and executions             |
-| GET    | `/api/me`                     | Read own balances, orders, and fills                                            |
-| GET    | `/api/orders/:orderId`        | Inspect an owned order and its fills; another account's order returns not found |
-| POST   | `/api/orders`                 | Submit `{ commandId, sessionId, side, quantity, price }`                        |
-| POST   | `/api/orders/:orderId/cancel` | Cancel own remainder with `{ commandId, sessionId }`                            |
-| GET    | `/api/receipts/:commandId`    | Resolve own original trading command outcome                                    |
-| GET    | `/api/openapi.json`           | Read the authenticated OpenAPI description                                      |
+| Method | Path                               | Purpose                                                                         |
+| ------ | ---------------------------------- | ------------------------------------------------------------------------------- |
+| POST   | `/api/auth/login`                  | Sign in with `{ handle, password }`                                             |
+| GET    | `/api/auth/session`                | Read the authenticated identity                                                 |
+| POST   | `/api/auth/logout`                 | Revoke the current session; send `{}`                                           |
+| POST   | `/api/auth/password`               | Change password with `{ currentPassword, newPassword }` and rotate the session  |
+| POST   | `/api/auth/redeem`                 | Consume an invitation with `{ token, handle, password }`                        |
+| POST   | `/api/auth/recover`                | Consume a recovery token with `{ token, password }`                             |
+| GET    | `/api/workspace`                   | Read one consistent identity, market, private/admin workspace, and live cursor  |
+| GET    | `/api/events?sessionId=…&cursor=…` | Subscribe to authenticated live invalidations                                   |
+| GET    | `/api/market`                      | Read session, market state, shared order-book depth, and executions             |
+| GET    | `/api/me`                          | Read own balances, orders, and fills                                            |
+| GET    | `/api/orders/:orderId`             | Inspect an owned order and its fills; another account's order returns not found |
+| POST   | `/api/orders`                      | Submit `{ commandId, sessionId, side, quantity, price }`                        |
+| POST   | `/api/orders/:orderId/cancel`      | Cancel own remainder with `{ commandId, sessionId }`                            |
+| GET    | `/api/receipts/:commandId`         | Resolve own original trading command outcome                                    |
+| GET    | `/api/openapi.json`                | Read the authenticated OpenAPI description                                      |
 
 Invitation redemption creates and funds an account atomically. Sign in after redemption to establish a cookie session. Handles are lowercase identifiers of 3–32 characters beginning with a letter and continuing with letters, digits, or underscores. Passwords contain 12–128 Unicode code points within the supported encoded-size bound. Invitations last 24 hours, recovery tokens one hour, and login sessions 12 hours.
 
 Administrator mutations use `{ commandId, sessionId, reason }` plus the additional fields shown below. Every administrator route requires the administrator role; passing an administrator's account identifier never substitutes for that role.
 
-| Method | Path                                      | Purpose / additional mutation fields                                 |
-| ------ | ----------------------------------------- | -------------------------------------------------------------------- |
-| GET    | `/api/admin/overview`                     | Read operational state                                               |
-| GET    | `/api/admin/traders`                      | List participant accounts                                            |
-| GET    | `/api/admin/traders/:accountId`           | Inspect an account snapshot                                          |
-| GET    | `/api/admin/invitations`                  | List invitation metadata and state                                   |
-| POST   | `/api/admin/invitations`                  | Create a single-use invitation                                       |
-| POST   | `/api/admin/invitations/:id/revoke`       | Revoke an unused invitation                                          |
-| POST   | `/api/admin/traders/:accountId/recovery`  | Issue a trader recovery token and invalidate preceding unused tokens |
-| POST   | `/api/admin/traders/:accountId/suspend`   | Revoke access and cancel the remaining open orders                   |
-| POST   | `/api/admin/traders/:accountId/reinstate` | Restore access without repeating initial funding                     |
-| POST   | `/api/admin/market/pause`                 | Pause order admission and matching                                   |
-| POST   | `/api/admin/market/resume`                | Resume a healthy market                                              |
-| POST   | `/api/admin/reconcile`                    | Record a reconciliation check; inspect `data.ok` and `data.issues`   |
-| POST   | `/api/admin/orders/:orderId/cancel`       | Cancel an order remainder administratively                           |
-| POST   | `/api/admin/grants`                       | Issue funds; add `{ accountId, asset, amount }`                      |
-| GET    | `/api/admin/audit`                        | Inspect administrator action history without secrets                 |
+| Method | Path                                      | Purpose / additional mutation fields                                    |
+| ------ | ----------------------------------------- | ----------------------------------------------------------------------- |
+| GET    | `/api/admin/overview`                     | Read operational state                                                  |
+| GET    | `/api/admin/traders`                      | List participant accounts                                               |
+| GET    | `/api/admin/traders/:accountId`           | Inspect an account snapshot                                             |
+| GET    | `/api/admin/traders/:accountId/workspace` | Inspect account balances, orders, fills, journal activity, and commands |
+| GET    | `/api/admin/invitations`                  | List invitation metadata and state                                      |
+| POST   | `/api/admin/invitations`                  | Create a single-use invitation                                          |
+| POST   | `/api/admin/invitations/:id/revoke`       | Revoke an unused invitation                                             |
+| POST   | `/api/admin/traders/:accountId/recovery`  | Issue a trader recovery token and invalidate preceding unused tokens    |
+| POST   | `/api/admin/traders/:accountId/suspend`   | Revoke access and cancel the remaining open orders                      |
+| POST   | `/api/admin/traders/:accountId/reinstate` | Restore access without repeating initial funding                        |
+| POST   | `/api/admin/market/pause`                 | Pause order admission and matching                                      |
+| POST   | `/api/admin/market/resume`                | Resume a healthy market                                                 |
+| POST   | `/api/admin/reconcile`                    | Record a reconciliation check; inspect `data.ok` and `data.issues`      |
+| POST   | `/api/admin/orders/:orderId/cancel`       | Cancel an order remainder administratively                              |
+| POST   | `/api/admin/grants`                       | Issue funds; add `{ accountId, asset, amount }`                         |
+| GET    | `/api/admin/audit`                        | Inspect administrator action history without secrets                    |
 
 Invitation and recovery issuance return their plaintext `token` only on the first successful response. A retry returns the persisted metadata without the secret. If that first response is lost, revoke the unusable invitation and issue a new one; a new recovery issuance invalidates its predecessor. Persisting a plaintext secret in a retry receipt would weaken the storage guarantee.
 
@@ -92,11 +95,27 @@ Administrator results use `{ commandId, sessionId, sequence, status, code?, data
 
 HTTP errors use `{ code, message }`. Invalid inputs use 400, unauthenticated access 401, permission or CSRF/origin failures 403, missing private orders 404, conflicting command identities 409, unsupported content type 415, rate limits 429, and unavailable recovery or authentication capacity 503. Resolve a possibly committed command by its original identity after a transport failure or server error.
 
-Book depth is capped at 50 price levels per side, shared executions at 100 records, and account/order history responses at 100 records with `historyLimit` metadata. These are bounded inspection views, not complete exports. Administrator lists are also bounded; pagination and CSV exports remain future work. Private trader fill responses omit counterparty order identities; administrator inspection retains both sides for reconciliation.
+Book depth is capped at 50 price levels per side, shared executions at 100 records, and account/order history responses at 100 records with `historyLimit` metadata. The workspace separately includes every open order in `account.openOrders` (at most 50), so an older open order remains cancellable after dropping out of recent history. These are bounded inspection views, not complete exports. Administrator lists are also bounded; pagination and CSV exports remain future work. Private trader fill responses omit counterparty order identities; administrator inspection retains both sides for reconciliation.
+
+## Workspace and live synchronization
+
+`GET /api/workspace` reads identity, active exchange session, state, book, trades, candles, the role-specific account or admin view, and an outbox `cursor` within one read-only PostgreSQL Repeatable Read transaction. Monetary values and cursor positions remain strings. An administrator receives `admin` and no trading balance; a trader receives only their own `account`. Administrator overview includes fee and issuance account IDs for the privileged account-inspection route.
+
+Account workspaces include all open orders, 100 recent orders, 100 recent fills, 100 journal entries, and 100 recent durable commands. Rejected commands remain visible even when they created no order. Order details contain recorded creation/update times, cancellation reason, cumulative executed quantity, and exact cumulative fee calculated over the entire execution history, independently of the displayed fill limit. Weighted average execution price is display-only, rounded half up to nine decimal places using integer arithmetic. Activity exposes signed ledger movements by asset and available/reserved bucket. A trader sees a command reference only when it is their own command; another actor's reference is null. Administrator inspection retains both fill-side order IDs and command references.
+
+Candles use complete one-minute execution buckets before limiting to the latest 60 observed buckets, in ascending timestamp order. Missing minutes stay absent; no price or volume is fabricated. Shared market data contains no participant or order identities.
+
+After fetching the workspace, open one `EventSource` at `/api/events?sessionId=<sessionId>&cursor=<cursor>`. The cookie authenticates the stream; never put authentication tokens in its URL. Each `ready`, `invalidate`, `reset`, or `heartbeat` event contains only `{ sessionId, cursor }`. Its SSE `id` is the cursor. Native reconnect `Last-Event-ID` takes precedence over the query cursor. Refresh the authoritative workspace on invalidation, reset, reconnect, and heartbeat; a heartbeat can also refresh time-dependent invitation expiry and audit changes with no outbox entry. An `auth-lost` event closes the stream and rechecks the current browser session: password rotation may have installed a new cookie while the old stream still used the revoked session. Reconnect only when that current session belongs to the same actor; otherwise clear private client state. `unavailable` means reconnect and refresh when the service returns.
+
+Outbox replay and live delivery apply the current authorization filter. Unrelated private administration activity does not produce trader invalidations; cursor gaps are normal. A cursor beyond the current head, absent from retained history, from another exchange session, or more than 1,000 replay records behind receives `reset`. It asks for a fresh snapshot, not independent replay of account mutations. PostgreSQL outbox IDs are allocated by the serialized command transactions; gaps from rolled-back transactions do not imply lost data.
+
+Every poll rechecks the stored login session, and authorization is checked again immediately before delivery. Logout, suspension, recovery, and expiry revoke stream access. A single process permits 32 streams and at most three per account, independently of the ordinary 64 active-request limit. Streams poll committed data once per second and heartbeat every ten seconds. These are resource bounds, not measured capacity guarantees. A slow socket is disconnected on backpressure without building a notification queue. Closing the server closes all streams before draining HTTP resources.
+
+Serialize workspace refreshes or discard older responses by session and cursor. Equal cursors can still have changed fault state or time-derived metadata, so equal does not mean unchanged. Do not apply order-book, balance, or history mutations optimistically from SSE. A paused or faulty market remains inspectable; it never authorizes a new order.
 
 ## Cookie-authenticated example
 
-This example runs in a same-origin browser console after signing in. It assumes two separately invited traders when a matching counterparty is needed; submitting a limit order alone may leave it resting on an empty book. It demonstrates the API's request sequence, not a completed browser interface.
+This example runs in a same-origin browser console after signing in. It assumes two separately invited traders when a matching counterparty is needed; submitting a limit order alone may leave it resting on an empty book. It demonstrates the API's request sequence independently of the browser interface.
 
 ```js
 const csrfToken = decodeURIComponent(
@@ -146,7 +165,7 @@ For an uncertain submission, query `/api/receipts/${submission.commandId}` or re
 
 ## Validation boundary
 
-API integration tests use Fastify's HTTP injection interface with a real PostgreSQL database and independently isolated schemas. Additional disconnect tests open actual loopback HTTP connections, confirm a database admission wait or an admitted transaction boundary, and then abort the client connection. The suite exercises route validation, authentication, cookies, authorization, admission capacity, and committed accounting together. This does not substitute for future browser testing, real TLS/reverse-proxy validation, or load testing.
+API integration tests use Fastify's HTTP injection interface with a real PostgreSQL database and independently isolated schemas. Live-stream and disconnect tests open actual loopback HTTP connections. Stream checks cover replay, filtering, heartbeat, cursor reset, access revocation, bounded connections, and orderly shutdown. Disconnect tests confirm a database admission wait or an admitted transaction boundary, and then abort the client connection. The suite exercises route validation, authentication, cookies, authorization, admission capacity, and committed accounting together. These backend checks do not establish browser behavior, real TLS/reverse-proxy behavior, or measured load capacity; browser verification is documented separately.
 
 The suite also constructs an actual milestone-one schema and committed allocation history before applying the identity migration. A separate admission-race test holds PostgreSQL's control-row lock, confirms that an authenticated order is waiting, revokes its session, and verifies that the queued command makes no financial change. These checks cover schema continuity and authorization at the transaction boundary.
 

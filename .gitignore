@@ -7,5 +7,7 @@ dist/
 coverage/
 test-results/
 playwright-report/
+output/playwright/
+.playwright-cli/
 *.tsbuildinfo
 .DS_Store

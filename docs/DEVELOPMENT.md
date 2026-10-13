@@ -2,13 +2,13 @@
 
 ## Current milestone
 
-Milestone 1 established matching, accounting, and recovery. Milestone 2 adds invitations, authentication, a Fastify HTTP API, and audited administrator controls. The [MVP](MVP.md) remains the full product specification; [architecture](ARCHITECTURE.md) records the implementation direction and [API documentation](API.md) describes the implemented routes.
+Milestone 1 established matching, accounting, and recovery. Milestone 2 added invitations, authentication, a Fastify HTTP API, and audited administrator controls. Milestone 3 adds the React trader and administrator workspaces, exact order/balance/history views, and live synchronization. The [MVP](MVP.md) remains the full product specification; [architecture](ARCHITECTURE.md) records the implementation direction and [API documentation](API.md) describes the implemented routes.
 
-The HTTP adapter derives account identity from an opaque login cookie, validates strict request schemas, and checks role and ownership. Financial and access mutations recheck authorization under the same installation lock. Internal TypeScript methods remain trusted module interfaces; caller-supplied account IDs alone are never authentication. There is no browser interface yet.
+The HTTP adapter derives account identity from an opaque login cookie, validates strict request schemas, and checks role and ownership. Financial and access mutations recheck authorization under the same installation lock. Internal TypeScript methods remain trusted module interfaces; caller-supplied account IDs alone are never authentication. The React client shares transport types and uses decimal strings for financial labels and exact integer arithmetic for previews.
 
 HTTP admission has a bounded active-request count and deadline. The control lock has a bounded wait. An observed disconnect before admission prevents a later mutation; an admitted command finishes atomically and is resolved through its original receipt. The [API guide](API.md) documents the prototype limits and the distinction between an observed disconnect and an uncertain client-side timeout.
 
-Local administrator setup starts paused and supplies no administrator balance. The isolated matching demo still uses its separate developer fixture, which starts trading directly. Protected market orders, bot operation, session rollover, SSE delivery, exports, and a separate restricted application database role remain later milestones. Transactional outbox records exist; an event publisher does not.
+Local administrator setup starts paused and supplies no administrator balance. The isolated matching demo still uses its separate developer fixture, which starts trading directly. Protected market orders, bot operation, session rollover, exports, and a separate restricted application database role remain later milestones. The current publisher reads committed outbox positions and sends authorized snapshot invalidations; it does not send financial deltas or token secrets.
 
 ## Prerequisites and setup
 
@@ -22,7 +22,9 @@ pnpm admin:setup
 pnpm dev
 ```
 
-`admin:setup` prompts for a handle and a non-echoed password, then creates the single administrator. It refuses to replace an existing administrator. `dev` starts the API in Node watch mode on loopback; its default origin is `http://localhost:3000`. Stop the API before running owner commands because one writer owns the installation.
+`admin:setup` prompts for a handle and a non-echoed password, then creates the single administrator. It refuses to replace an existing administrator. `dev` starts the API in Node watch mode on loopback port 3001, waits for liveness, and starts Vite on `http://localhost:3000`. Vite proxies `/api` and `/health`, including SSE, so the browser uses one origin for cookies and commands. Open the printed localhost URL, rather than the backend port. Stop the development runner before owner commands because one writer owns the installation.
+
+Use `WEB_PORT` to change Vite's port and `PORT` to change the backend port; they must differ. `API_ORIGIN` defaults to `http://localhost:<WEB_PORT>` and must exactly match the URL opened in the browser. An occupied port fails explicitly instead of silently selecting a different origin. Stopping the runner stops both development processes and the local PostgreSQL process it owns.
 
 These commands use a persistent PostgreSQL cluster under `.local/development-postgres/`. Generated connection metadata is private, ignored by Git, and stored in `.local/development-database.json`; it is not an example or a portable deployment credential. Keep both with the local database, and do not share them. The runner stops only the PostgreSQL process it started and never deletes this persistent cluster. An incomplete or unreadable cluster is preserved for inspection.
 
@@ -42,21 +44,34 @@ The bundled PostgreSQL dependency supplies platform-specific binaries, so no Doc
 
 ## Commands
 
-| Command                          | Purpose                                                                                   |
-| -------------------------------- | ----------------------------------------------------------------------------------------- |
-| `pnpm demo`                      | Run the controlled scenario against temporary PostgreSQL, or `DATABASE_URL` when supplied |
-| `pnpm dev`                       | Start the API in watch mode against persistent local PostgreSQL or `DATABASE_URL`         |
-| `pnpm admin:setup`               | Create the single administrator through an interactive local prompt                       |
-| `pnpm admin:reset`               | Recover administrator access and revoke its existing sessions                             |
-| `pnpm typecheck`                 | Check all workspace TypeScript, including tests and developer scripts                     |
-| `pnpm format:check`              | Check repository formatting                                                               |
-| `pnpm format`                    | Apply formatting                                                                          |
-| `pnpm test`                      | Run deterministic domain examples and property tests                                      |
-| `pnpm test:integration`          | Start temporary PostgreSQL and run integration tests, or use `TEST_DATABASE_URL`          |
-| `pnpm test:integration:external` | Run integration tests directly against an already configured `TEST_DATABASE_URL`          |
-| `pnpm check`                     | Run type checking, formatting, domain tests, and PostgreSQL integration tests             |
+| Command                          | Purpose                                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `pnpm demo`                      | Run the controlled scenario against temporary PostgreSQL, or `DATABASE_URL` when supplied         |
+| `pnpm dev`                       | Start Vite and the API in development/watch mode against persistent PostgreSQL or `DATABASE_URL`  |
+| `pnpm admin:setup`               | Create the single administrator through an interactive local prompt                               |
+| `pnpm admin:reset`               | Recover administrator access and revoke its existing sessions                                     |
+| `pnpm typecheck`                 | Check all workspace TypeScript, including tests and developer scripts                             |
+| `pnpm format:check`              | Check repository formatting                                                                       |
+| `pnpm format`                    | Apply formatting                                                                                  |
+| `pnpm test`                      | Run domain examples/property tests and browser command-recovery/arithmetic tests                  |
+| `pnpm test:integration`          | Start temporary PostgreSQL and run integration tests, or use `TEST_DATABASE_URL`                  |
+| `pnpm test:integration:external` | Run integration tests directly against an already configured `TEST_DATABASE_URL`                  |
+| `pnpm check`                     | Run type checking, formatting, domain/client tests, PostgreSQL integration, and the browser build |
+| `pnpm build:web`                 | Check the browser production bundle without starting a production server                          |
 
 Local iteration uses development/watch mode. `API_ORIGIN` selects the exact permitted origin; mutating requests must send it in the Origin header. Secure cookies require an HTTPS origin; the HTTP exception is limited to loopback. The default listener is loopback. TLS termination, proxy deployment, and remote installation have not been validated as a release configuration.
+
+## Browser workflows and live state
+
+The administrator starts at the control room. Invite participants, inspect their accounts, pause/resume trading, run reconciliation, and review audit history. Invitation links expire after 24 hours; recovery links after one hour. Their secrets are displayed only for immediate copying, use URL fragments, and are removed from the recipient's address bar after capture. They are not written to browser request recovery storage. If an issuance response loses its one-time secret, revoke/reissue the invitation or create a replacement recovery link.
+
+Participant screens separate trading, open/recent orders, balances/activity, and execution/command history. Limit orders require review of the quantity, price, fee, and reservation before submission. Cancellation applies to the displayed order snapshot and preserves earlier fills. Book depth, candles, and recent trades use this installation's executions only; an empty exchange shows an empty chart instead of invented prices.
+
+The browser reads a consistent workspace snapshot, then subscribes after its outbox cursor. SSE notifications invalidate that snapshot; serialized refreshes replace the visible values from PostgreSQL. A disconnected workspace retains its last confirmed values and disables new commands until refreshed. Authorization is rechecked during live delivery. There is no optimistic credit, invented fill, or assumed cancellation.
+
+Before dispatch, the browser stores an unresolved command's original identity and payload in per-account session storage. Reloading the tab retains that identity; Resolve outcome checks its durable receipt and Retry same command reuses the payload. A missing receipt does not prove failure. Do not clear browser storage to dismiss an uncertain trade: doing so loses the client's recovery record. This recovery store contains command inputs, not passwords or bearer-token secrets.
+
+Views show all open orders and the most recent 100 orders, fills, activity entries, and command outcomes. Administrator lists show the first 200 participants by handle, the latest 200 invitations, and the latest 100 audit entries. A known account UUID can still be inspected beyond the participant list, without presenting unavailable participant-management metadata. Book depth is limited to 50 levels per side; the chart contains up to 60 one-minute candles with actual trades. History limits are visible in the UI. Pagination and complete exports remain future work.
 
 ## Existing PostgreSQL instances
 
@@ -96,22 +111,24 @@ A runtime accounting invariant failure rolls back financial effects to a savepoi
 
 ## Source boundaries
 
-| Location                  | Responsibility                                                  |
-| ------------------------- | --------------------------------------------------------------- |
-| `packages/domain/src/`    | Exact amounts, validation, and pure price/time matching         |
-| `packages/contracts/src/` | TypeBox request/response contracts used by the HTTP adapter     |
-| `packages/database/src/`  | PostgreSQL types, client, reviewed schema, and migrations       |
-| `apps/server/src/`        | Command admission, persistence, accounting, reads, and recovery |
-| `packages/domain/test/`   | Focused domain examples and generated properties                |
-| `tests/integration/`      | Real database concurrency, integrity, and process-loss tests    |
-| `tests/helpers/`          | Isolated database schemas and the crash-worker harness          |
-| `scripts/`                | Development, owner-command, and temporary PostgreSQL runners    |
+| Location                    | Responsibility                                                                           |
+| --------------------------- | ---------------------------------------------------------------------------------------- |
+| `packages/domain/src/`      | Exact amounts, validation, and pure price/time matching                                  |
+| `packages/contracts/src/`   | TypeBox request/response contracts used by the HTTP adapter                              |
+| `packages/database/src/`    | PostgreSQL types, client, reviewed schema, and migrations                                |
+| `apps/server/src/`          | Command admission, persistence, accounting, reads, and recovery                          |
+| `apps/web/src/`             | Auth, trader/admin screens, shared dialogs, live snapshots, and browser command recovery |
+| `packages/domain/test/`     | Focused domain examples and generated properties                                         |
+| `apps/web/src/**/*.test.ts` | Browser request identity/recovery and exact preview arithmetic tests                     |
+| `tests/integration/`        | Real database concurrency, integrity, and process-loss tests                             |
+| `tests/helpers/`            | Isolated database schemas and the crash-worker harness                                   |
+| `scripts/`                  | Development, owner-command, and temporary PostgreSQL runners                             |
 
 The domain does not open database connections. The service owns the transaction boundary. PostgreSQL is authoritative; process memory does not decide whether a previous order committed.
 
 ## Evidence and limitations
 
-Local validation uses Node.js 24 and PostgreSQL 18.4. Run `pnpm check` for current counts and results. The CI workflow runs the same checks against a PostgreSQL service; no remote CI run has been performed.
+Local validation uses Node.js 24 and PostgreSQL 18.4. The UI milestone passed 55 domain/property/client tests and 58 PostgreSQL integration tests, plus type checking, formatting, and the production bundle build. Run `pnpm check` for current counts and results. The CI workflow runs the same checks against a PostgreSQL service; no remote CI run has been performed.
 
 | Suite                                      | Behavior exercised                                                                                                                                                                     |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -121,10 +138,17 @@ Local validation uses Node.js 24 and PostgreSQL 18.4. Run `pnpm check` for curre
 | `tests/integration/recovery.test.ts`       | Actual application `SIGKILL` before commit and after commit before acknowledgement; atomic rollback, persisted receipts/outbox, and replay without duplicated effects                  |
 | `tests/integration/api*.test.ts`           | Cookie authentication, CSRF/origin checks, invitation races, account privacy, credential revocation, admin controls, grants, and inspection during faults                              |
 | `tests/integration/admin-recovery.test.ts` | A queued resume observes the fault it actually reconciles; an unpersisted runtime fault stays visible and cannot be cleared by replaying an older receipt                              |
+| `tests/integration/workspace.test.ts`      | Snapshot/cursor consistency during concurrent commits, complete open orders, exact totals beyond the visible fill window, candle aggregation, system-account inspection, and ownership |
+| `tests/integration/live.test.ts`           | Real SSE listeners, committed replay/reset, authorized filtering, revocation/expiry, stream bounds, shutdown, and fault invalidation without a new event cursor                        |
+| `apps/web/src/**/*.test.ts`                | Exact order preview boundaries, durable request identity, ambiguous responses, safe retries, receipts, and browser storage failures                                                    |
 
 The process-loss suite uses a separate operating-system process and real PostgreSQL transactions. It does not simulate PostgreSQL losing durable storage, an operating-system power failure, or recovery from a backup. Those are different operational guarantees.
 
-Most API tests use Fastify request injection with real PostgreSQL. Admission tests also use a real loopback HTTP listener to exercise disconnects before and after admission, alongside database lock-contention checks. Neither establishes browser cookie behavior or UI acceptance. No throughput, latency, production deployment, or complete MVP acceptance claim follows from these tests. Performance measurement and the remaining product flows need their own evidence.
+Most API tests use Fastify request injection with real PostgreSQL. Admission and live-delivery tests also use real loopback HTTP listeners. Those establish server behavior independently of the separate browser checks; they do not establish complete UI acceptance. No throughput, latency, production deployment, or complete MVP acceptance claim follows from these tests. Performance measurement and the remaining product flows need their own evidence.
+
+Manual Chromium checks through the real development UI covered sign-in, a 0.4 BTC-SIM limit order filling 0.3 with a 15 USD-SIM fee, live pause propagation, cancellation while paused, and bulk cancellation of the reviewed open-order snapshot. They also covered password rotation while retaining the current browser session, offline submission gating and reconnect refresh, and an intentionally lost committed response plus failed receipt read: reloading retained the command identity, resolved its receipt, and cleared the pending record. Disabled browser storage kept reads available while visibly blocking commands. Dialog Escape restored focus, and trader/admin views at 390 px avoided body overflow while wide tables scrolled internally.
+
+Administrator checks covered invitation creation/copy/revocation, an exact 0.000000001 USD-SIM grant and its journal entry, suspension/reinstatement without repeated funding, administrative cancellation with its recorded reason and exact reservation release, reconciliation, and audit history. Separate browser sessions redeemed an invitation, received the exact initial allocation, and completed password recovery while preserving existing balances. Both flows removed token fragments from the address bar, including a new handoff opened within the existing page. These are local manual checks, not a committed browser regression suite or full MVP acceptance.
 
 Local smoke checks also started the actual watch-mode HTTP listener, checked its liveness, uninitialized readiness, and rejection of anonymous private reads, then stopped it. The owner setup prompt was checked for hidden password input and cancellation without creating an administrator. The persistent development database reopened successfully between these commands; no default application credentials are installed.
 

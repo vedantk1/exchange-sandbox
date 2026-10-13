@@ -14,6 +14,8 @@ import {
   WriterUnavailableError,
 } from './exchange.js';
 import { marketSnapshot, privateOrder } from './queries.js';
+import { workspaceSnapshot, inspectAccount } from './workspace.js';
+import { LiveUpdates, type LiveOptions } from './live.js';
 import { AdmissionError, installHttpAdmission, type HttpAdmissionOptions } from './admission.js';
 
 export interface ApiOptions {
@@ -24,6 +26,7 @@ export interface ApiOptions {
   secureCookies: boolean;
   logger?: boolean;
   admission?: HttpAdmissionOptions;
+  live?: LiveOptions;
 }
 
 /** Owns HTTP resources only. The composition root owns Exchange's lifetime. */
@@ -64,6 +67,8 @@ export async function buildApi(options: ApiOptions) {
   const admission = installHttpAdmission(app, options.admission);
   const { auth, exchange } = options;
   const admin = options.admin ?? new AdminService(exchange);
+  const live = new LiveUpdates(exchange, options.live);
+  app.addHook('preClose', async () => live.close());
   await app.register(cookie);
   await app.register(rateLimit, { max: 600, timeWindow: '1 minute' });
   await app.register(swagger, {
@@ -162,6 +167,13 @@ export async function buildApi(options: ApiOptions) {
         token(request),
         mutating ? (csrf as string) : undefined,
       );
+      const expectedActor = request.headers['x-sandbox-actor'];
+      if (expectedActor !== undefined && expectedActor !== principal.accountId)
+        throw new AuthError(
+          'SESSION_CHANGED',
+          'The signed-in account changed. Refresh the workspace before continuing.',
+          401,
+        );
       if (role && principal.role !== role)
         throw new AuthError('FORBIDDEN', 'This action is not available to this account.', 403);
     });
@@ -267,6 +279,50 @@ export async function buildApi(options: ApiOptions) {
       setSession(reply, await auth.changePassword(token(request), request.body)),
   );
   app.get(
+    '/api/workspace',
+    {
+      preHandler: protect(),
+      schema: { security, response: { 200: S.Workspace, ...errors } },
+    },
+    async (request) => workspaceSnapshot(exchange, token(request)),
+  );
+  app.get(
+    '/api/admin/traders/:id/workspace',
+    {
+      preHandler: protect('ADMIN'),
+      schema: { security, params: S.IdParam, response: { 200: S.AccountWorkspace, ...errors } },
+    },
+    async (request) => inspectAccount(exchange, token(request), request.params.id),
+  );
+  app.get(
+    '/api/events',
+    {
+      preHandler: protect(),
+      schema: { security, querystring: S.StreamQuery, response: { ...errors } },
+    },
+    async (request, reply) => {
+      if (
+        request.headers['sec-fetch-site'] === 'cross-site' ||
+        (request.headers.origin && request.headers.origin !== options.origin)
+      ) {
+        throw new AuthError('ORIGIN_INVALID', 'Use the configured application origin.', 403);
+      }
+      const last = request.headers['last-event-id'];
+      if (
+        last !== undefined &&
+        (typeof last !== 'string' || !/^(0|[1-9][0-9]{0,19})$/.test(last))
+      ) {
+        throw new AuthError('CURSOR_INVALID', 'Use a valid stream cursor.', 400);
+      }
+      return live.connect(
+        reply,
+        token(request),
+        request.query.sessionId,
+        last ?? request.query.cursor,
+      );
+    },
+  );
+  app.get(
     '/api/market',
     { preHandler: protect(), schema: { security, response: { 200: S.Market, ...errors } } },
     async (request) => marketSnapshot(exchange, token(request)),
@@ -323,15 +379,7 @@ export async function buildApi(options: ApiOptions) {
         security,
         params: S.OrderParam,
         response: {
-          200: {
-            type: 'object',
-            properties: {
-              order: S.Order,
-              fills: { type: 'array', items: S.Fill },
-              historyLimit: { type: 'integer' },
-            },
-            required: ['order', 'fills', 'historyLimit'],
-          },
+          200: S.OrderDetail,
           ...errors,
         },
       },

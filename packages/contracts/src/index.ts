@@ -210,3 +210,136 @@ export const Market = Type.Object({
 });
 export type OrderCommandInput = Static<typeof OrderCommand>;
 export type AdminCommandInput = Static<typeof AdminCommand>;
+
+export const Cursor = Type.String({ minLength: 1, maxLength: 20, pattern: '^(0|[1-9][0-9]*)$' });
+export const StreamQuery = Type.Object(
+  { sessionId: Id, cursor: Cursor },
+  { additionalProperties: false },
+);
+export const WorkspaceOrder = Type.Object({
+  ...Order.properties,
+  createdAt: Type.String(),
+  updatedAt: Type.String(),
+  executedQuantity: Type.String(),
+  averagePrice: Type.Union([Type.String(), Type.Null()]),
+  cumulativeFee: Type.String(),
+});
+export const WorkspaceFill = Type.Object({
+  makerOrderId: Type.Optional(Id),
+  takerOrderId: Type.Optional(Id),
+  buyOrderId: Type.Optional(Id),
+  sellOrderId: Type.Optional(Id),
+  ...Fill.properties,
+  orderId: Id,
+  side: Type.Union([Type.Literal('BUY'), Type.Literal('SELL')]),
+  role: Type.Union([Type.Literal('MAKER'), Type.Literal('TAKER')]),
+  timestamp: Type.String(),
+  fee: Type.String(),
+});
+export const Activity = Type.Object({
+  id: Type.String(),
+  commandId: Type.Union([Id, Type.Null()]),
+  orderId: Type.Union([Id, Type.Null()]),
+  kind: Type.String(),
+  asset: Type.Union([Type.Literal('BTC-SIM'), Type.Literal('USD-SIM')]),
+  bucket: Type.Union([Type.Literal('AVAILABLE'), Type.Literal('RESERVED')]),
+  amount: Type.String(),
+  createdAt: Type.String(),
+});
+export const CommandHistory = Type.Object({
+  commandId: Id,
+  status: Type.Union([Type.Literal('ACCEPTED'), Type.Literal('REJECTED')]),
+  code: Type.Union([Type.String(), Type.Null()]),
+  sequence: Type.String(),
+  createdAt: Type.String(),
+  orderId: Type.Union([Id, Type.Null()]),
+});
+export const AccountWorkspace = Type.Object({
+  openOrders: Type.Array(WorkspaceOrder),
+  balances: Snapshot.properties.balances,
+  orders: Type.Array(WorkspaceOrder),
+  fills: Type.Array(WorkspaceFill),
+  activity: Type.Array(Activity),
+  commands: Type.Array(CommandHistory),
+  historyLimit: Type.Integer(),
+});
+export const OrderDetail = Type.Object({
+  order: WorkspaceOrder,
+  fills: Type.Array(WorkspaceFill),
+  historyLimit: Type.Integer(),
+});
+export const Candle = Type.Object({
+  timestamp: Type.String(),
+  open: Type.String(),
+  high: Type.String(),
+  low: Type.String(),
+  close: Type.String(),
+  volume: Type.String(),
+});
+export const WorkspaceTrader = Type.Object({
+  accountId: Id,
+  handle: Type.String(),
+  status: Type.String(),
+  suspensionReason: Type.Union([Type.String(), Type.Null()]),
+  pendingCancellation: Type.Boolean(),
+  createdAt: Type.String(),
+});
+export const WorkspaceAudit = Type.Object({
+  id: Id,
+  actorId: Id,
+  commandId: Id,
+  sessionId: Type.Union([Id, Type.Null()]),
+  action: Type.String(),
+  targetId: Type.Union([Id, Type.Null()]),
+  reason: Type.String(),
+  result: Type.Record(Type.String(), Type.Unknown()),
+  createdAt: Type.String(),
+});
+export const WorkspaceOverview = Type.Object({
+  feeAccountId: Type.Union([Id, Type.Null()]),
+  issuanceAccountId: Type.Union([Id, Type.Null()]),
+  sessionId: Type.Union([Id, Type.Null()]),
+  marketState: Type.String(),
+  fault: Type.Union([Type.String(), Type.Null()]),
+  counts: Type.Object({
+    traders: Type.String(),
+    suspended: Type.String(),
+    pending: Type.String(),
+    open_orders: Type.String(),
+  }),
+});
+export const Workspace = Type.Object({
+  user: User,
+  sessionId: Id,
+  marketState: Type.Union([Type.Literal('TRADING'), Type.Literal('PAUSED')]),
+  fault: Type.Union([Type.String(), Type.Null()]),
+  cursor: Cursor,
+  market: Type.Object({
+    book: Market.properties.book,
+    trades: Market.properties.trades,
+    candles: Type.Array(Candle),
+  }),
+  account: Type.Optional(AccountWorkspace),
+  admin: Type.Optional(
+    Type.Object({
+      overview: WorkspaceOverview,
+      traders: Type.Array(WorkspaceTrader),
+      invitations: Invitations,
+      audit: Type.Array(WorkspaceAudit),
+    }),
+  ),
+  historyLimit: Type.Integer(),
+});
+export type WorkspaceResponse = Static<typeof Workspace>;
+export type AccountWorkspaceResponse = Static<typeof AccountWorkspace>;
+export type OrderDetailResponse = Static<typeof OrderDetail>;
+export type WorkspaceOrderResponse = Static<typeof WorkspaceOrder>;
+export type WorkspaceFillResponse = Static<typeof WorkspaceFill>;
+
+export type WorkspaceView = Static<typeof Workspace>;
+export type AccountView = Static<typeof AccountWorkspace>;
+export type WorkspaceOrderView = Static<typeof WorkspaceOrder>;
+export type WorkspaceFillView = Static<typeof WorkspaceFill>;
+export type ActivityView = Static<typeof Activity>;
+export type CommandHistoryView = Static<typeof CommandHistory>;
+export type CandleView = Static<typeof Candle>;

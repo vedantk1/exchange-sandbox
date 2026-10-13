@@ -3,7 +3,7 @@ import { sql } from 'kysely';
 import type { Exchange } from './exchange.js';
 import { requirePrincipal } from './auth/access.js';
 import { AuthError } from './auth/errors.js';
-import { fillView, orderView } from './views.js';
+import { detailedOrders, ownerFill } from './workspace.js';
 
 export async function marketSnapshot(exchange: Exchange, token: string) {
   return exchange.accessTransaction(async (tx, control) => {
@@ -54,7 +54,7 @@ export async function marketSnapshot(exchange: Exchange, token: string) {
 }
 
 export async function privateOrder(exchange: Exchange, token: string, orderId: string) {
-  return exchange.accessTransaction(async (tx) => {
+  return exchange.readTransaction(async (tx) => {
     const actor = await requirePrincipal(tx, token, 'TRADER');
     const order = await tx
       .selectFrom('orders')
@@ -71,6 +71,10 @@ export async function privateOrder(exchange: Exchange, token: string, orderId: s
       .orderBy('fill_index')
       .limit(100)
       .execute();
-    return { order: orderView(order), fills: fills.map(fillView), historyLimit: 100 };
+    return {
+      order: (await detailedOrders(tx, [order]))[0]!,
+      fills: fills.map((fill) => ownerFill(fill, order)),
+      historyLimit: 100,
+    };
   });
 }

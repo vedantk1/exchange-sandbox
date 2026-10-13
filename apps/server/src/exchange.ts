@@ -175,7 +175,11 @@ export class Exchange {
   }
 
   async readTransaction<T>(work: (tx: Transaction<Database>) => Promise<T>): Promise<T> {
-    return this.db.transaction().setIsolationLevel('repeatable read').execute(work);
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(work);
   }
 
   /** Only recovery/admin modules may use this; callers must reconcile before clearing a fault. */
@@ -183,6 +187,10 @@ export class Exchange {
     work: (tx: Transaction<Database>, control: Control) => Promise<T>,
   ): Promise<T> {
     return this.financialTransaction(work, undefined, true);
+  }
+
+  getRuntimeFault(): string | null {
+    return this.runtimeFault;
   }
 
   getRuntimeFaultRevision(): number {

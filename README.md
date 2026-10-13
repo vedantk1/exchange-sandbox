@@ -2,7 +2,7 @@
 
 A self-hostable spot-exchange sandbox for developers and technical learners. Trade virtual BTC-SIM / USD-SIM and inspect how orders, fills, fees, and balances change. Real money, custody, and external exchange connections are outside scope.
 
-The implemented backend includes the transactional exchange core, invitation-only authentication, and an authenticated trader/admin HTTP API. It is a development prototype; the browser interface and remaining market/lifecycle features come later.
+The prototype includes a browser trading workspace, an administrator control room, invitation-only authentication, and the transactional exchange core. Live updates keep order, balance, and market views synchronized with committed PostgreSQL state.
 
 ## Run locally
 
@@ -14,7 +14,9 @@ pnpm admin:setup
 pnpm dev
 ```
 
-Setup prompts for the administrator handle and a password without echoing it. The first session starts paused. The development runner retains its local PostgreSQL database between runs. See the [API guide](docs/API.md) to sign in, invite two traders, resume trading, and submit orders. There is no browser UI yet.
+Open `http://localhost:3000`. Setup prompts for the administrator handle and a password without echoing it. The first session starts paused, and the development runner retains PostgreSQL data between runs.
+
+Sign in as the administrator, create invitations, and privately hand the single-use links to two participants. After they join, resume trading with a recorded reason. Use separately signed-in browser profiles to place a resting sell and a crossing buy, then inspect their fills and exact balance changes. There is no automatic liquidity in this milestone.
 
 For an isolated matching demonstration and the full validation suite:
 
@@ -35,6 +37,9 @@ The demo and integration runner start real, temporary PostgreSQL 18 instances on
 - Startup reconciliation and tests that kill an actual application process before commit or after commit but before acknowledgement.
 - Hashed credentials and tokens, transactional invitation redemption, session revocation, and CSRF-protected API commands.
 - Audited pause/resume, grants, administrative cancellation, and suspension with fault-safe access revocation.
+- Trader screens with a live order book, internal execution candles, reviewed limit orders, cancellation, exact balances, and linked activity/history.
+- Administrator screens for invitations, access recovery, participants, system accounts, market controls, reviewed grants, and audit history.
+- Reconnectable authorized SSE invalidations, consistent workspace snapshots, and browser request identity preserved across refreshes after uncertain responses.
 
 The architecture is a modular monolith with PostgreSQL as the authority. Serializing mutations gives this single-market prototype an understandable consistency boundary. Throughput is unmeasured; distributed services would add recovery complexity before there is evidence they are needed.
 
@@ -45,4 +50,4 @@ The architecture is a modular monolith with PostgreSQL as the authority. Seriali
 - [Development and validation](docs/DEVELOPMENT.md): local commands, core API, persistence, and test evidence.
 - [HTTP API](docs/API.md): routes, authentication, request examples, and retry behavior.
 
-Protected market orders, bot operation, session rollover, live streams, exports, and browser workflows remain unimplemented. Real funds remain outside scope.
+Protected market orders, bot operation, session rollover, pagination/exports, a packaged self-host deployment, and complete browser acceptance remain future work. History views are explicitly bounded; all currently open orders remain visible. Real funds remain outside scope.

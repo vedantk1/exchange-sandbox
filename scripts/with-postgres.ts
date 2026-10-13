@@ -139,7 +139,7 @@ async function runChild(connectionString: string): Promise<number> {
       : mode === 'demo'
         ? ['--import', 'tsx', 'apps/server/src/demo.ts']
         : mode === 'dev'
-          ? ['--watch', '--watch-preserve-output', '--import', 'tsx', 'apps/server/src/main.ts']
+          ? ['--import', 'tsx', 'scripts/dev.ts']
           : ['--import', 'tsx', 'apps/server/src/operator-cli.ts', mode!];
   return new Promise<number>((resolve, reject) => {
     child = spawn(process.execPath, arguments_, {

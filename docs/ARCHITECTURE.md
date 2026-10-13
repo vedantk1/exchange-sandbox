@@ -1,8 +1,8 @@
 # System architecture and stack
 
-Status: accepted architecture and TypeScript stack, based on the accepted [MVP](MVP.md). Milestones 1 and 2 implement the trading core, PostgreSQL persistence/recovery, invitation-only authentication, trader/admin HTTP routes, and audited controls. UI, bot operation, session rollover, protected market orders, live delivery, deployment, and performance acceptance remain future work. Exact dependencies are pinned in the manifests and lockfile. See [development and validation](DEVELOPMENT.md) and the [HTTP API](API.md) for the implemented boundary.
+Status: accepted architecture and TypeScript stack, based on the accepted [MVP](MVP.md). Milestones 1–3 implement the trading core, PostgreSQL persistence/recovery, invitation-only authentication, trader/admin HTTP routes and screens, audited controls, and live delivery. Bot operation, session rollover, protected market orders, exports, deployment, and performance acceptance remain future work. Exact dependencies are pinned in the manifests and lockfile. See [development and validation](DEVELOPMENT.md) and the [HTTP API](API.md) for the implemented boundary.
 
-Use a modular TypeScript application, a React interface, and PostgreSQL as the authoritative store. The full MVP will use ordinary HTTP commands and queries and server-sent events for live updates. The implemented core uses exact integer arithmetic and one serialized database transaction for each exchange command. The initial deployment has one application process and one database.
+Use a modular TypeScript application, a React interface, and PostgreSQL as the authoritative store. The browser uses ordinary HTTP commands and queries and server-sent events for live updates. The implemented core uses exact integer arithmetic and one serialized database transaction for each exchange command. The initial deployment has one application process and one database.
 
 This favors inspectable correctness, a small installation, and approachable contributions. It accepts a throughput ceiling and a single application failure domain. This is a virtual exchange sandbox with one market; it does not need a distributed trading platform to meet its product contract.
 
@@ -74,7 +74,7 @@ flowchart LR
     API <-->|Transactions and consistent reads| DB
 ```
 
-The application process contains HTTP handling, authentication, command orchestration, read queries, the bot scheduler, and event delivery. In a self-hosted release it also serves the built frontend from the same origin. Development runs Vite and the backend in development/watch mode, with Vite proxying API and SSE requests.
+The application process contains HTTP handling, authentication, command orchestration, read queries, and event delivery. The bot scheduler remains a planned module. In a future packaged self-hosted release the application will also serve the built frontend from the same origin. Development runs Vite and the backend in development/watch mode, with Vite proxying API and SSE requests.
 
 There is one supported application instance. A database-held singleton guard prevents accidentally starting a second active bot scheduler/application writer. Acquiring ownership also advances a writer epoch under the installation control-row lock. Every exchange or access-changing command verifies its instance's epoch under that lock; a previous instance cannot continue writing through pooled connections after ownership has changed. Loss of the guard makes the instance unready and stops command/bot dispatch. Ownership acquisition and recovery are ordered after any transaction already holding the control lock. An in-process mutex is not the persistence guarantee. Active-active deployment and automatic failover are excluded.
 
@@ -177,7 +177,7 @@ Candles can initially be derived from executions. If an incrementally maintained
 
 ## Market previews and API behavior
 
-The server creates a market preview from a consistent local-book snapshot and stores a short-lived record bound to actor, exchange session, side, quantity, guard, and expiry. The browser submits that preview identity with the order. Admission rechecks expiry after acquiring the command lock, using current authoritative time. It never trusts a browser-calculated guard or silently reanchors the price.
+The current interface supports limit orders with an exact client-side review of the requested price/quantity, fees, and maximum reservation. It does not guarantee a fill or reserve funds before submission. Protected market orders and their server-issued previews are a later increment: the server will create a preview from a consistent local-book snapshot bound to actor, exchange session, side, quantity, guard, and expiry. Admission must recheck expiry after acquiring the command lock and must not trust a browser-calculated guard or silently reanchor the price.
 
 REST is the supported developer interface, with OpenAPI schemas for exact decimal strings, command IDs, session IDs, stable error codes, and order states. Cookie-jar examples can authenticate and trade without introducing an API-key product. Internal administrator endpoints support the UI; a separately supported administrator automation API remains outside the MVP.
 
@@ -188,7 +188,7 @@ For cookie-authenticated mutations, require CSRF/origin protection. A timeout me
 | Transport     | Benefit                                                 | Tradeoff                                                                            | Decision                        |
 | ------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------- |
 | Polling       | Smallest initial vertical slice                         | Repeated reads and noticeable refresh lag                                           | Useful during early development |
-| REST plus SSE | Durable HTTP commands with one server-to-browser stream | Requires cursor recovery, backpressure, and proxy configuration                     | MVP target                      |
+| REST plus SSE | Durable HTTP commands with one server-to-browser stream | Requires cursor recovery, backpressure, and proxy configuration                     | Implemented                     |
 | WebSocket     | Bidirectional persistent messaging                      | More application protocol for commands, authentication, subscriptions, and recovery | Revisit if genuinely needed     |
 
 SSE provides reconnect and event-ID mechanics; durable replay and authorization are application responsibilities. [SSE standard](https://html.spec.whatwg.org/multipage/server-sent-events.html)
@@ -197,11 +197,15 @@ Write outbox events in the same transaction as each command's result. A small pu
 
 Start with coalesced invalidation notifications and authoritative snapshot refreshes. This is easier to validate than independently applying optimistic changes to book, funds, orders, and chart caches. Each browser uses one multiplexed SSE connection, not one per panel.
 
+The current bounded publisher checks committed outbox positions once per second for each connection. Frames carry only session/cursor invalidations; no order, account, or secret payload is delivered. It allows 32 streams overall and three per account, checks up to 1,001 outbox rows to detect a replay beyond its 1,000-record bound, sends ten-second heartbeats, and closes on response backpressure. Large or unavailable replay windows request a fresh snapshot. These are prototype resource bounds, not measured capacity claims; a shared poll/fanout loop remains an option if measured database read load warrants it.
+
 The workspace snapshot reads session state, market data, own balances/orders, and a cursor in one Read Only Repeatable Read transaction, rather than the command path's Read Committed isolation. The stream catches up after that cursor, then continues live. Committed exchange sequence plus event position determines ordering; allocating an ordinary database sequence before commit is not by itself proof of commit order. Serialize client refreshes or discard responses older than the applied session generation and cursor so a delayed response cannot restore stale balances or a previous session.
 
 Outbox replay must filter by current authorization, just like live delivery. Filtered streams legitimately skip unrelated event positions; clients must not interpret every numerical gap as lost personal data. An unavailable/pruned cursor triggers a full fresh snapshot. Bounded client buffers, heartbeats, and reconnect behavior prevent a slow or disconnected browser from receiving an unbounded backlog.
 
 A connection's initial authentication is not perpetual permission. Suspension, password recovery, expiry, or logout closes affected streams; check authorization again before delivering queued private events. Shared payloads do not include participant identities, private order records, or balances. Invitation/recovery secrets never appear in notifications.
+
+The client persists the original unresolved command in per-account session storage before sending it, and resolves or retries that identity after transport loss or a page reload. It stores no password or handoff-token secret. Confirmed receipts are historical outcomes; current balances and order state still come from fresh snapshots. Administrator one-time tokens require a fresh handoff response and cannot be recovered from a receipt.
 
 For an export, use one Read Only Repeatable Read transaction for all datasets and its as-of manifest. Generate the bounded files promptly, release the database snapshot, then deliver the download. Do not hold that transaction open for a slow download. Keep temporary artifacts outside public/static paths, reauthorize their owner at download time, and delete them after download or expiry. Apply ownership filters and safe CSV encoding, including user-controlled text. PostgreSQL's isolation levels make the snapshot boundary meaningful. [PostgreSQL transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html)
 
@@ -244,7 +248,7 @@ Use reviewed explicit migrations under a migration lock. Refuse an incompatible/
 
 Structured logs should identify request, command, exchange session, sequence, and outcome while redacting credentials, cookies, invitation links, recovery links, and private payloads. Collect command latency, lock waits, failed invariants, rejected commands, recovery state, SSE reconnects, and bot inventory conditions. Expose liveness separately from readiness; a recovering service can be alive without being ready to trade.
 
-Development currently uses bundled PostgreSQL and a backend watch process bound to loopback by default; an existing PostgreSQL instance is also supported. Vite's development server and a Compose deployment remain later work. The release installation will use one app container and PostgreSQL with durable storage; exposing it beyond localhost needs documented TLS/reverse-proxy settings, including SSE buffering/timeouts. No hosted authentication, monitoring, or email account is necessary.
+Development uses bundled PostgreSQL, a backend watch process on loopback port 3001, and Vite on localhost port 3000; an existing PostgreSQL instance and explicit port overrides are supported. A Compose deployment remains later work. The release installation will use one app container and PostgreSQL with durable storage; exposing it beyond localhost needs documented TLS/reverse-proxy settings, including SSE buffering/timeouts. No hosted authentication, monitoring, or email account is necessary.
 
 ## Validation and delivery order
 
@@ -266,8 +270,8 @@ Implementation order:
 1. Exact domain values, matching/accounting rules, and technical numeric bounds — implemented.
 2. PostgreSQL schema and transactional vertical slice proving the MVP partial-fill/cancel example, duplicate-command recovery, and invariant checks — implemented; see the development guide for test evidence and limitations.
 3. Invitations/authentication, HTTP contracts, administrator gates, grants, and access-recovery cases — implemented. Bot control and session rollover remain separate increments; their accepted behavior above is unchanged.
-4. Trader/admin UI, protected previews, live synchronization, and explainable history.
-5. Exports, self-host setup, restore drill, full browser acceptance, and measured workload validation.
+4. Trader/admin UI, limit-order review, live synchronization, and explainable bounded history — implemented. Protected market-order previews remain a separate increment.
+5. Protected market orders, bot/lifecycle features, exports, packaged self-host setup, restore drill, full browser acceptance, and measured workload validation.
 
 These increments are implementation order, not separate weakened definitions of done. Accounting and recovery are prerequisites for the polished trading experience.
 

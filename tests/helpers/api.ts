@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { buildApi } from '../../apps/server/src/api.js';
+import type { LiveOptions } from '../../apps/server/src/live.js';
 import type { HttpAdmissionOptions } from '../../apps/server/src/admission.js';
 import { AuthService } from '../../apps/server/src/auth/index.js';
 import { Exchange } from '../../apps/server/src/exchange.js';
@@ -61,6 +62,7 @@ export class ApiClient {
 export async function createApiFixture(
   options: {
     admission?: HttpAdmissionOptions;
+    live?: LiveOptions;
     hooks?: ExchangeOptions['hooks'];
   } = {},
 ) {
@@ -101,6 +103,7 @@ export async function createApiFixture(
       secureCookies: false,
       logger: false,
       ...(options.admission ? { admission: options.admission } : {}),
+      ...(options.live ? { live: options.live } : {}),
     });
     await app.ready();
   }
