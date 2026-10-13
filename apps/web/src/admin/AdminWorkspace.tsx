@@ -313,7 +313,7 @@ export function AdminWorkspace({
               <p className="admin-body-copy">
                 {paused
                   ? 'New orders and matching are stopped. Existing orders retain their reservations; participants can still inspect and cancel their remaining quantities when accounting is healthy.'
-                  : 'Participants can submit limit orders. Orders execute against other participants using price and time priority.'}
+                  : 'Participants can submit limit and protected market orders. Orders execute using price and time priority.'}
               </p>
               <div className="admin-session">
                 <span>Active session</span>
@@ -365,8 +365,8 @@ export function AdminWorkspace({
                   <div>
                     <strong>Review the market rules</strong>
                     <p>
-                      BTC-SIM / USD-SIM · limit orders only · 0.10% fee on each side. The optional
-                      demo simulator uses these same market rules.
+                      BTC-SIM / USD-SIM · limit and protected market orders · 0.10% fee on each
+                      side. The optional demo simulator uses these same market rules.
                     </p>
                   </div>
                 </li>

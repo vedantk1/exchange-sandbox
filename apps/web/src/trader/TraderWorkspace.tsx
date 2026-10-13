@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { OrderDetailResponse, WorkspaceOrderView, WorkspaceView } from '@sandbox/contracts';
+import type {
+  MarketPreviewView,
+  OrderDetailResponse,
+  WorkspaceOrderView,
+  WorkspaceView,
+} from '@sandbox/contracts';
 import type { CommandOutcome } from '../lib/api.js';
 import { BalanceActivity, BalanceCards, HistoryPanel, OrdersTable } from './AccountPanels.js';
 import { OrderBook, PriceChart, RecentTrades } from './MarketPanels.js';
@@ -20,6 +25,11 @@ export interface TraderWorkspaceProps {
     label: string,
   ) => Promise<CommandOutcome | null>;
   readOrder: (id: string) => Promise<OrderDetailResponse>;
+  previewMarket: (body: {
+    sessionId: string;
+    side: 'BUY' | 'SELL';
+    quantity: string;
+  }) => Promise<MarketPreviewView>;
   refresh: () => Promise<void>;
 }
 
@@ -30,6 +40,7 @@ export function TraderWorkspace({
   section,
   runCommand,
   readOrder,
+  previewMarket,
   refresh,
 }: TraderWorkspaceProps) {
   const [selectedPrice, setSelectedPrice] = useState<{ price: string; key: number } | null>(null);
@@ -164,6 +175,7 @@ export function TraderWorkspace({
             busy={busy}
             selectedPrice={selectedPrice}
             runCommand={runCommand}
+            previewMarket={previewMarket}
           />
           <BalanceCards account={account} />
           <section className="trader-panel trader-open-orders">

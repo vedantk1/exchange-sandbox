@@ -47,7 +47,7 @@ export function OrdersTable({
     return (
       <div className="trader-empty">
         <strong>No matching orders</strong>
-        <p>Your accepted limit orders and their latest outcomes appear here.</p>
+        <p>Your accepted orders and their latest outcomes appear here.</p>
       </div>
     );
   return (
@@ -57,7 +57,7 @@ export function OrdersTable({
           <tr>
             <th>Order / time</th>
             <th>Side</th>
-            <th className="numeric">Limit · USD-SIM</th>
+            <th className="numeric">Limit / guard · USD-SIM</th>
             <th className="numeric">Filled / quantity · BTC-SIM</th>
             <th>Status</th>
             <th>
@@ -88,8 +88,18 @@ export function OrdersTable({
                 <span className={`trader-side ${order.side.toLowerCase()}`}>
                   {order.side === 'BUY' ? 'Buy' : 'Sell'}
                 </span>
+                <span className="trader-cell-sub">
+                  {order.type === 'MARKET' ? 'Protected market' : 'Limit'}
+                </span>
               </td>
-              <td className="numeric">{amount(order.price)}</td>
+              <td className="numeric">
+                {amount(order.price)}
+                {order.type === 'MARKET' && (
+                  <span className="trader-cell-sub">
+                    {order.side === 'BUY' ? 'Maximum' : 'Minimum'} guard
+                  </span>
+                )}
+              </td>
               <td className="numeric">
                 {amount(order.executedQuantity, 4)}{' '}
                 <span className="muted">/ {amount(order.quantity, 4)}</span>

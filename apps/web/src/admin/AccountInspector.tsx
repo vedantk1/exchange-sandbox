@@ -256,7 +256,7 @@ export function AccountInspector({
                     <thead>
                       <tr>
                         <th>Order / side</th>
-                        <th>Limit price</th>
+                        <th>Limit / guard price</th>
                         <th>Remaining / total</th>
                         <th>State</th>
                         <th>
@@ -458,6 +458,7 @@ function OrderRow({
       <tr>
         <td>
           <span className={`admin-side ${order.side.toLowerCase()}`}>{order.side}</span>
+          <small>{order.type === 'MARKET' ? 'Protected market' : 'Limit'}</small>
           <button
             className="admin-link"
             onClick={onExpand}
@@ -467,7 +468,12 @@ function OrderRow({
             {order.id.slice(0, 8)} ↗
           </button>
         </td>
-        <td className="admin-number">{amount(order.price)}</td>
+        <td className="admin-number">
+          {amount(order.price)}
+          {order.type === 'MARKET' && (
+            <small>{order.side === 'BUY' ? 'Maximum buy' : 'Minimum sell'}</small>
+          )}
+        </td>
         <td className="admin-number">
           {amount(order.remaining)}
           <small>of {amount(order.quantity)}</small>

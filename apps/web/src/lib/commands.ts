@@ -11,8 +11,19 @@ export interface PendingCommand {
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem' | 'removeItem'>;
 type Request = <T>(path: string, body?: Record<string, unknown>) => Promise<T>;
 const COMMAND_PATH =
-  /^\/api\/(?:orders(?:\/[0-9a-f-]{36}\/cancel)?|admin\/(?:market\/(?:pause|resume)|simulator\/(?:start|stop)|grants|reconcile|invitations(?:\/[0-9a-f-]{36}\/revoke)?|traders\/[0-9a-f-]{36}\/(?:suspend|reinstate|recovery)|orders\/[0-9a-f-]{36}\/cancel))$/;
+  /^\/api\/(?:orders(?:\/market|\/[0-9a-f-]{36}\/cancel)?|admin\/(?:market\/(?:pause|resume)|simulator\/(?:start|stop)|grants|reconcile|invitations(?:\/[0-9a-f-]{36}\/revoke)?|traders\/[0-9a-f-]{36}\/(?:suspend|reinstate|recovery)|orders\/[0-9a-f-]{36}\/cancel))$/;
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function assertMarketPayload(path: string, body: Record<string, unknown>): void {
+  if (path !== '/api/orders/market') return;
+  if (
+    typeof body.previewId !== 'string' ||
+    !ID.test(body.previewId) ||
+    Object.keys(body).some((key) => !['previewId', 'commandId', 'sessionId'].includes(key))
+  ) {
+    throw new Error('Market commands must reference only the confirmed preview.');
+  }
+}
 
 /** Only non-secret command intentions may enter browser persistence. */
 function assertNonSecretPayload(value: unknown, visited = new Set<object>()): void {
@@ -64,6 +75,7 @@ export class CommandRunner {
           throw new Error('Invalid pending command');
         }
         assertNonSecretPayload(value.body);
+        assertMarketPayload(value.path, value.body);
         this.pending = value;
       }
     } catch {
@@ -82,6 +94,7 @@ export class CommandRunner {
     if (this.busy || this.pending || this.error) return null;
     if (!COMMAND_PATH.test(path)) throw new Error('Unsupported command route.');
     assertNonSecretPayload(body);
+    assertMarketPayload(path, body);
     const pending: PendingCommand = {
       version: 1,
       actorId: this.actorId,

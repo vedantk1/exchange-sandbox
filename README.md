@@ -36,11 +36,12 @@ The demo, integration, and browser test runners start real, temporary PostgreSQL
 - Exact scaled-integer quantities, prices, reservations, and fees; decimal strings at the service boundary.
 - Atomic orders, fills, double-entry journal entries, balance projections, command receipts, and notification records.
 - Cancellation of remaining quantity with no duplicated fund release.
+- Protected market orders with a server-bound 5% price guard, a 10-second preview, immediate execution, and explicit canceled remainders.
 - Durable command identity: retries resolve the original outcome, while changed payloads are rejected.
 - Startup reconciliation and tests that kill an actual application process before commit or after commit but before acknowledgement.
 - Hashed credentials and tokens, transactional invitation redemption, session revocation, and CSRF-protected API commands.
 - Audited pause/resume, grants, administrative cancellation, and suspension with fault-safe access revocation.
-- Trader screens with a live order book, internal execution candles, reviewed limit orders, cancellation, exact balances, and linked activity/history.
+- Trader screens with a live order book, internal execution candles, reviewed limit and protected market orders, cancellation, exact balances, and linked activity/history.
 - Administrator screens for invitations, access recovery, participants, system accounts, market controls, reviewed grants, and audit history.
 - Reconnectable authorized SSE invalidations, consistent workspace snapshots, and browser request identity preserved across refreshes after uncertain responses.
 - An administrator-managed two-account simulator with generation-fenced start/stop, persisted command plans, visible inventory limits, reviewed funding, and honest sparse-chart states.
@@ -55,4 +56,4 @@ The architecture is a modular monolith with PostgreSQL as the authority. Seriali
 - [Development and validation](docs/DEVELOPMENT.md): local commands, core API, persistence, and test evidence.
 - [HTTP API](docs/API.md): routes, authentication, request examples, and retry behavior.
 
-Protected market orders, session rollover, pagination/exports, a packaged self-host deployment, and full-release acceptance remain future work. History views are explicitly bounded; all currently open orders remain visible. Real funds remain outside scope.
+Session rollover, pagination/exports, a packaged self-host deployment, and full-release acceptance remain future work. History views are explicitly bounded; all currently open orders remain visible. Real funds remain outside scope.

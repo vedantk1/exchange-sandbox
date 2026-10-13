@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { Navigate, NavLink, Route, Routes, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AccountView, OrderDetailResponse } from '@sandbox/contracts';
+import type { AccountView, MarketPreviewView, OrderDetailResponse } from '@sandbox/contracts';
 import {
   Activity,
   ArrowUpRight,
@@ -38,12 +38,18 @@ import {
 } from './lib/api.js';
 import { CommandRunner } from './lib/commands.js';
 import { useWorkspace } from './lib/workspace.js';
+import { marketOrderOutcome, type MarketOrderOutcome } from './trader/market-order.js';
 
 const TraderWorkspace = lazy(() =>
   import('./trader/index.js').then((module) => ({ default: module.TraderWorkspace })),
 );
 const AdminWorkspace = lazy(() =>
   import('./admin/index.js').then((module) => ({ default: module.AdminWorkspace })),
+);
+const MarketOutcomeDialog = lazy(() =>
+  import('./trader/MarketOutcomeDialog.js').then((module) => ({
+    default: module.MarketOutcomeDialog,
+  })),
 );
 
 export function App() {
@@ -152,6 +158,12 @@ function AuthenticatedWorkspace({
       api<OrderDetailResponse>(`/api/orders/${id}`, undefined, undefined, user.accountId),
     [user.accountId],
   );
+  const previewMarket = useCallback(
+    (body: { sessionId: string; side: 'BUY' | 'SELL'; quantity: string }) =>
+      api<MarketPreviewView>('/api/orders/market/preview', body, undefined, user.accountId),
+    [user.accountId],
+  );
+  const [marketOutcome, setMarketOutcome] = useState<MarketOrderOutcome | null>(null);
   const [notice, setNotice] = useState<{ message: string; bad: boolean } | null>(null);
   const [settings, setSettings] = useState(false);
   const [rules, setRules] = useState(false);
@@ -160,13 +172,17 @@ function AuthenticatedWorkspace({
   const notifyResult = useCallback(
     async (result: CommandOutcome | null) => {
       if (result) {
+        const execution = marketOrderOutcome(result);
+        if (execution) setMarketOutcome(execution);
         setNotice({
           message:
             result.status === 'REJECTED'
               ? readableCode(result.code ?? 'COMMAND_REJECTED')
               : result.data?.ok === false
                 ? 'Reconciliation found an accounting problem. Trading remains halted; inspect the audit result.'
-                : 'Command confirmed.',
+                : execution
+                  ? 'Market order confirmed. Review the final execution outcome.'
+                  : 'Command confirmed.',
           bad: result.status === 'REJECTED' || result.data?.ok === false,
         });
         try {
@@ -429,6 +445,7 @@ function AuthenticatedWorkspace({
                         runCommand={runCommand}
                         refresh={workspace.refresh}
                         readOrder={readOrder}
+                        previewMarket={previewMarket}
                       />
                     }
                   />
@@ -459,6 +476,11 @@ function AuthenticatedWorkspace({
           setNotice({ message: 'Password changed. Other sessions were revoked.', bad: false });
         }}
       />
+      {marketOutcome && (
+        <Suspense fallback={<LoadingView message="Loading the confirmed market outcome…" />}>
+          <MarketOutcomeDialog outcome={marketOutcome} close={() => setMarketOutcome(null)} />
+        </Suspense>
+      )}
       <Dialog
         open={Boolean(handoff)}
         onOpenChange={(open) => {
@@ -488,8 +510,13 @@ function AuthenticatedWorkspace({
         <dl className="rule-list">
           <dt>Pair</dt>
           <dd>BTC-SIM / USD-SIM</dd>
-          <dt>Order type</dt>
-          <dd>Limit · good until canceled</dd>
+          <dt>Order types</dt>
+          <dd>Limit · good until canceled. Protected market · immediate or cancel.</dd>
+          <dt>Market protection</dt>
+          <dd>
+            Fixed 5% guard from the preview reference. Preview expires after 10 seconds; unfilled
+            quantity is canceled.
+          </dd>
           <dt>Priority</dt>
           <dd>Best price, then acceptance sequence</dd>
           <dt>Execution price</dt>

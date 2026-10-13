@@ -153,6 +153,100 @@ describe('durable browser command intentions', () => {
     },
   );
 
+  it('retries the confirmed market preview after reload without requesting or replacing its guard', async () => {
+    const storage = memory();
+    const previewId = randomUUID();
+    const offline = requester(() => {
+      throw new TypeError('Lost acknowledgement');
+    });
+    const first = new CommandRunner(actorId, storage, offline.request, vi.fn());
+    expect(
+      await first.submit('/api/orders/market', { previewId }, 'Protected market buy', sessionId),
+    ).toBeNull();
+    const original = pending(storage);
+    const online = requester((_path, body) =>
+      body ? { ...accepted(body), status: 'REJECTED', code: 'PREVIEW_EXPIRED' } : null,
+    );
+    const restored = new CommandRunner(actorId, storage, online.request, vi.fn());
+    expect(restored.storageBlocked).toBe(false);
+    expect(await restored.resolve()).toBeNull();
+    expect(await restored.retry()).toMatchObject({
+      commandId: original.body.commandId,
+      status: 'REJECTED',
+      code: 'PREVIEW_EXPIRED',
+    });
+    expect(online.calls).toEqual([
+      { path: `/api/receipts/${original.body.commandId}` },
+      { path: '/api/orders/market', body: original.body },
+    ]);
+    expect(original.body).toEqual({ previewId, commandId: expect.any(String), sessionId });
+    expect(storage.writes).toHaveLength(1);
+    expect(restored.pending).toBeNull();
+  });
+
+  it('recovers a committed market receipt after expiry without submitting another preview', async () => {
+    const storage = memory();
+    const previewId = randomUUID();
+    let sent: Record<string, unknown> | undefined;
+    const transport = requester((_path, body) => {
+      if (body) {
+        sent = body;
+        throw new TypeError('Response lost');
+      }
+      return accepted(sent!);
+    });
+    const runner = new CommandRunner(actorId, storage, transport.request, vi.fn());
+    expect(
+      await runner.submit('/api/orders/market', { previewId }, 'Market buy', sessionId),
+    ).toEqual(accepted(sent!));
+    expect(transport.calls.filter((call) => call.body)).toHaveLength(1);
+    expect(runner.pending).toBeNull();
+  });
+
+  it.each([
+    { previewId: 'invalid' },
+    { previewId: randomUUID(), guardPrice: '60000' },
+    { previewId: randomUUID(), quantity: '1' },
+  ])('rejects malformed or mutable market intentions before persistence', async (body) => {
+    const storage = memory();
+    const transport = requester((_path, value) => accepted(value!));
+    const runner = new CommandRunner(actorId, storage, transport.request, vi.fn());
+    await expect(
+      runner.submit('/api/orders/market', body, 'Market buy', sessionId),
+    ).rejects.toThrow('confirmed preview');
+    expect(storage.writes).toEqual([]);
+    expect(transport.calls).toEqual([]);
+  });
+
+  it('keeps preview reads outside durable command storage and rejects corrupted restored market payloads', async () => {
+    const storage = memory();
+    const transport = requester((_path, body) => accepted(body!));
+    const runner = new CommandRunner(actorId, storage, transport.request, vi.fn());
+    await expect(
+      runner.submit(
+        '/api/orders/market/preview',
+        { side: 'BUY', quantity: '1' },
+        'Preview',
+        sessionId,
+      ),
+    ).rejects.toThrow('Unsupported');
+    expect(storage.writes).toEqual([]);
+    storage.entries.set(
+      `sandbox.pending.v1.${actorId}`,
+      JSON.stringify({
+        version: 1,
+        actorId,
+        path: '/api/orders/market',
+        label: 'Market buy',
+        body: { commandId: randomUUID(), sessionId, previewId: randomUUID(), guardPrice: '60000' },
+      }),
+    );
+    const restored = new CommandRunner(actorId, storage, transport.request, vi.fn());
+    expect(restored.storageBlocked).toBe(true);
+    expect(restored.pending).toBeNull();
+    expect(transport.calls).toEqual([]);
+  });
+
   it.each([400, 401, 403, 429])(
     'clears a first-attempt definite HTTP %i rejection without retrying or reading a receipt',
     async (status) => {

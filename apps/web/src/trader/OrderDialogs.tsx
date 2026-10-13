@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { OrderDetailResponse, WorkspaceOrderView } from '@sandbox/contracts';
 import { Dialog } from '../components/ui.js';
-import type { CommandOutcome } from '../lib/api.js';
+import { readableCode, type CommandOutcome } from '../lib/api.js';
 import { amount, shortId, stateLabel, timeLabel } from './amounts.js';
 import { OrderStatus } from './AccountPanels.js';
 
@@ -79,13 +79,25 @@ export function OrderDetailDialog({
           <p className="trader-full-id mono">{order.id}</p>
           <dl className="trader-review-list">
             <div>
+              <dt>Order type</dt>
+              <dd>
+                {order.type === 'MARKET'
+                  ? 'Protected market · immediate or cancel'
+                  : 'Limit · good until canceled'}
+              </dd>
+            </div>
+            <div>
               <dt>Accepted</dt>
               <dd>
                 {new Date(order.createdAt).toLocaleString()} · #{order.sequence}
               </dd>
             </div>
             <div>
-              <dt>Limit price</dt>
+              <dt>
+                {order.type === 'MARKET'
+                  ? `${order.side === 'BUY' ? 'Maximum buy' : 'Minimum sell'} price · guard`
+                  : 'Limit price'}
+              </dt>
               <dd>{amount(order.price)} USD-SIM</dd>
             </div>
             <div>
@@ -123,7 +135,7 @@ export function OrderDetailDialog({
               Cancellation reason:{' '}
               {order.cancelReason.includes(':')
                 ? order.cancelReason
-                : stateLabel(order.cancelReason)}
+                : readableCode(order.cancelReason)}
             </p>
           )}
           {order.status === 'CANCELED' && (

@@ -394,6 +394,21 @@
   background: #4a2f32;
   color: #ffaba3;
 }
+.trader-type-toggle {
+  grid-template-columns: 0.7fr 1.3fr;
+  margin-bottom: 12px;
+}
+.trader-type-toggle button {
+  padding-inline: 6px;
+}
+.trader-type-toggle button.selected {
+  color: #e8eef4;
+  background: #2b3d4e;
+}
+.trader-side-toggle button:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
 .trader-available {
   display: flex;
   flex-direction: column;

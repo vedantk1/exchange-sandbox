@@ -87,6 +87,14 @@ export function readableCode(code: string): string {
     MARKET_MUST_BE_PAUSED: 'Pause trading before granting virtual funds.',
     PENDING_CANCELLATION: 'Order cancellation is pending reconciliation.',
     SELF_TRADE_PREVENTION: 'The remainder was canceled to prevent trading with your own order.',
+    PREVIEW_EXPIRED: 'This preview expired. Request and review a new preview before submitting.',
+    PREVIEW_NOT_FOUND: 'This preview is unavailable. Request and review a new preview.',
+    PREVIEW_USED: 'This preview has already been used. Check the original order outcome.',
+    NO_LIQUIDITY: 'No opposing liquidity was available.',
+    PRICE_GUARD_REACHED:
+      'The remainder was canceled because the next price exceeded your confirmed guard.',
+    INSUFFICIENT_LIQUIDITY:
+      'The remainder was canceled because no further matching liquidity was available.',
   };
   return explanations[code] ?? code.toLowerCase().replaceAll('_', ' ');
 }
