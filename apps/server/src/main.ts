@@ -2,6 +2,7 @@ import { buildApi } from './api.js';
 import { AuthService } from './auth/index.js';
 import { Exchange, WriterUnavailableError } from './exchange.js';
 import { DemoMarket } from './demo-market/service.js';
+import { configuredDatabaseUrl } from './config/database-url.js';
 
 let exchange: Exchange | undefined;
 let app: Awaited<ReturnType<typeof buildApi>> | undefined;
@@ -29,13 +30,15 @@ async function close(): Promise<void> {
 }
 
 try {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error('DATABASE_URL is required.');
+  const databaseUrl = await configuredDatabaseUrl();
   const rawPort = process.env.PORT ?? '3000';
   if (!/^[0-9]{1,5}$/.test(rawPort) || Number(rawPort) < 1 || Number(rawPort) > 65_535)
     throw new Error('PORT must be an integer between 1 and 65535.');
   const port = Number(rawPort);
   const host = process.env.HOST ?? '127.0.0.1';
+  const rawProxyHops = process.env.TRUST_PROXY_HOPS ?? '0';
+  if (!/^[01]$/.test(rawProxyHops)) throw new Error('TRUST_PROXY_HOPS must be 0 or 1.');
+  const proxyHops = Number(rawProxyHops) as 0 | 1;
   const origin = process.env.API_ORIGIN ?? 'http://localhost:3000';
   const parsedOrigin = new URL(origin);
   if (!['http:', 'https:'].includes(parsedOrigin.protocol) || parsedOrigin.origin !== origin)
@@ -45,7 +48,10 @@ try {
   if (!secureCookies && (!loopback || process.env.NODE_ENV === 'production'))
     throw new Error('HTTP is permitted only for loopback development.');
 
-  exchange = await Exchange.open(databaseUrl, { allowFaultedStartup: true });
+  exchange = await Exchange.open(databaseUrl, {
+    allowFaultedStartup: true,
+    migrations: process.env.NODE_ENV === 'production' ? 'verify' : 'apply',
+  });
   simulator = new DemoMarket(exchange);
   app = await buildApi({
     exchange,
@@ -53,6 +59,7 @@ try {
     origin,
     secureCookies,
     logger: true,
+    proxyHops,
   });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {

@@ -45,9 +45,12 @@ The demo, integration, and browser test runners start real, temporary PostgreSQL
 - Administrator screens for invitations, access recovery, participants, system accounts, market controls, reviewed grants, and audit history.
 - Reconnectable authorized SSE invalidations, consistent workspace snapshots, and browser request identity preserved across refreshes after uncertain responses.
 - An administrator-managed two-account simulator with generation-fenced start/stop, persisted command plans, visible inventory limits, reviewed funding, and honest sparse-chart states.
-- Browser regressions against real PostgreSQL, including uncertain-response recovery and simulator controls, with failure traces/screenshots retained in CI.
+- Browser regressions against real PostgreSQL, including uncertain-response recovery, simulator controls, rollover, archived balances, and actual CSV downloads, with failure traces/screenshots retained in CI.
+- Durable session rollover, exactly-once allocations, read-only financial archives, and recovery of the original transition after process loss.
+- Complete keyset history pagination and account/order lookup, plus role-scoped CSV files from one recorded snapshot.
+- A self-host Compose package with pinned images, HTTPS proxying, owner migrations, a restricted application role, and operational verification scripts.
 
-The architecture is a modular monolith with PostgreSQL as the authority. Serializing mutations gives this single-market prototype an understandable consistency boundary. Throughput is unmeasured; distributed services would add recovery complexity before there is evidence they are needed.
+The architecture is a modular monolith with PostgreSQL as the authority. Serializing mutations gives this single-market prototype an understandable consistency boundary. The reproducible workload and restore exercise are described in the [release guide](docs/RELEASE.md). Measurements apply to their explicit test configuration.
 
 ## Project documentation
 
@@ -55,5 +58,8 @@ The architecture is a modular monolith with PostgreSQL as the authority. Seriali
 - [System architecture and stack](docs/ARCHITECTURE.md): accepted design, alternatives, boundaries, and future work.
 - [Development and validation](docs/DEVELOPMENT.md): local commands, core API, persistence, and test evidence.
 - [HTTP API](docs/API.md): routes, authentication, request examples, and retry behavior.
+- [Release and walkthrough](docs/RELEASE.md): self-host packaging, acceptance evidence, restore/workload exercises, screenshots, and contribution guidance.
 
-Session rollover, pagination/exports, a packaged self-host deployment, and full-release acceptance remain future work. History views are explicitly bounded; all currently open orders remain visible. Real funds remain outside scope.
+Workspace snapshots show bounded recent history; complete pages reach older records. Exports explicitly reject oversized bundles instead of silently truncating. Real funds remain outside scope.
+
+Licensed under the [MIT license](LICENSE). The release guide explains how to evaluate and contribute to the project.

@@ -1,6 +1,6 @@
 # Sandbox API
 
-The API is the authenticated boundary around the PostgreSQL exchange core. It uses ordinary HTTP requests, opaque cookie sessions, and exact decimal strings. All assets and balances are simulated. The trader and administrator browser workspaces use committed snapshots and authenticated live invalidations. An administrator-managed simulator submits ordinary orders internally, with private inventory diagnostics and audited start/stop/funding controls. Protected market orders use server-bound previews and the same command recovery path. Session rollover remains a later milestone.
+The API is the authenticated boundary around the PostgreSQL exchange core. It uses ordinary HTTP requests, opaque cookie sessions, and exact decimal strings. All assets and balances are simulated. The trader and administrator browser workspaces use committed snapshots and authenticated live invalidations. An administrator-managed simulator submits ordinary orders internally, with private inventory diagnostics and audited start/stop/funding controls. Protected market orders use server-bound previews and the same command recovery path. Session rollover, retained history, paginated inspection, and coherent CSV exports are available.
 
 The trader interface and administrator controls use the same transaction boundary as the core. Administrator routes support the application; they do not establish a separate, stable automation product.
 
@@ -99,7 +99,7 @@ Administrator results use `{ commandId, sessionId, sequence, status, code?, data
 
 HTTP errors use `{ code, message }`. Invalid inputs use 400, unauthenticated access 401, permission or CSRF/origin failures 403, missing private orders 404, conflicting command identities 409, unsupported content type 415, rate limits 429, and unavailable recovery or authentication capacity 503. Resolve a possibly committed command by its original identity after a transport failure or server error.
 
-Book depth is capped at 50 price levels per side, shared executions at 100 records, and account/order history responses at 100 records with `historyLimit` metadata. The workspace separately includes every open order in `account.openOrders` (at most 50), so an older open order remains cancellable after dropping out of recent history. These are bounded inspection views, not complete exports. Administrator lists are also bounded; pagination and CSV exports remain future work. Private trader fill responses omit counterparty order identities; administrator inspection retains both sides for reconciliation.
+Book depth is capped at 50 price levels per side, shared executions at 100 records, and account/order history responses at 100 records with `historyLimit` metadata. The workspace separately includes every open order in `account.openOrders` (at most 50), so an older open order remains cancellable after dropping out of recent history. These are bounded inspection views, not complete exports. Administrator snapshot lists are also bounded. The session-history, full account-search, and coherent CSV routes below reach beyond these recent inspection windows. Private trader fill responses omit counterparty order identities; administrator inspection retains both sides for reconciliation.
 
 ## Protected market orders
 
@@ -141,6 +141,28 @@ The response is the ordinary `CommandResult`. New order results include `type: "
 | Cancellation `SELF_TRADE_PREVENTION`        | Execution encountered the account's own resting order        |
 
 Ordinary pause, fault, stale-session, authorization, and command-conflict rules also apply. A new preview request is not itself a financial command and has no command receipt; losing its response cannot place an order. Only confirmation enters the durable trading command path. Trader responses never contain counterparty identities.
+
+## Sessions, rollover, and complete history
+
+`POST /api/admin/sessions/rollover` accepts the ordinary administrator command `{commandId, sessionId, reason}`. It requires administrator authentication, Origin/CSRF protection, a paused market, and healthy accounting. Review the current session and affected account/order counts before submitting. The accepted result contains `data.previousSessionId`, `data.newSessionId`, `data.canceledOrderCount`, and `data.allocatedAccountCount`; the receipt remains bound to the original session. Retrying it never starts another session.
+
+A durable `IN_PROGRESS` operation is visible as optional `workspace.rollover`. Readiness returns 503 during the gate. Enrollment, reinstatement, and funding return temporary 503 `SESSION_ROLLING_OVER` without consuming tokens or creating financial effects. Inspection and access revocation remain available. Completion archives financial records, cancels remaining orders with `SESSION_ENDED`, allocates eligible accounts once, and leaves the new session paused with the simulator stopped. Startup recovers the original operation. A reconciliation failure preserves the gate/fault; after repair, the original command can finish it.
+
+| Method | Route                                                          | Purpose                                                                                   |
+| ------ | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| GET    | `/api/sessions?limit=25&cursor=...`                            | List active and retained sessions with creation/closure times                             |
+| GET    | `/api/history/:sessionId`                                      | Consistent role-scoped session snapshot                                                   |
+| GET    | `/api/history/:sessionId/page?kind=orders&limit=25&cursor=...` | Complete paginated inspection beyond the workspace's recent-record limit                  |
+| GET    | `/api/history/:sessionId/export`                               | Consistent CSV bundle for the trader's own account or an administrator's complete session |
+| GET    | `/api/admin/accounts/search?search=...&limit=25&cursor=...`    | Complete administrator handle/account lookup                                              |
+| GET    | `/api/admin/traders/:id/workspace?sessionId=...`               | Administrator inspection of one account in a selected session                             |
+| GET    | `/api/admin/orders/:orderId`                                   | Administrator lookup of any session's order; details include `sessionId`                  |
+
+Page kinds are `orders`, `fills`, `activity`, `commands`, and administrator-only `audit`. Searches match the displayed record IDs and relevant kind/outcome text within the authorized scope. Administrators select `accountId` for private account pages; traders default to their authenticated account and cannot select another. Pages accept a limit from 1 to 100, `search`, and order-only `side`/`status` filters. Opaque keyset cursors are bound to actor, session, record kind, account, and filters. Reusing a cursor for a different scope returns 400 `CURSOR_INVALID`. Each active-session page is a fresh read; it does not claim a snapshot spanning separate requests. Archived financial rows remain unchanged.
+
+Exports return `{sessionId, accountId, asOf, cursor, files:[{name,content}]}` from one read-only Repeatable Read transaction. The browser downloads the returned manifest and CSV files after that transaction has closed. An administrator can add `accountId` for an account-specific bundle; omitting it includes all session financial records, fee/issuance balances, and audit history. Traders receive only their own records and no counterparty identities or administrator audit. Authentication secrets are excluded.
+
+Every bundle includes documented decimal strings, a recorded boundary, and simulation labels in its manifest. Files are fully generated before delivery. The server rejects more than 10,000 rows in one file or a raw bundle over 5 MiB with 413 `EXPORT_TOO_LARGE`; it never silently truncates an export. CSV quoting escapes separators, quotes, and newlines. User-controlled text that could become a spreadsheet formula is escaped; verified decimal values retain their exact sign and precision.
 
 ## Workspace and live synchronization
 

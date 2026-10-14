@@ -1,0 +1,19 @@
+{
+  "generatedAt": "2026-10-14T07:47:33.902Z",
+  "kind": "isolated-self-host-https-smoke",
+  "checks": {
+    "staticDeepLinks": true,
+    "verifiedLocalCACertificate": true,
+    "secureCookies": true,
+    "csrfEnforced": true,
+    "invitationRedemption": true,
+    "protectedMarketGuard": true,
+    "exactAccounting": true,
+    "sseThroughProxy": true,
+    "sessionRollover": true,
+    "archivedFinancialHistory": true,
+    "originalReceiptReplay": true,
+    "pausedNewSession": true
+  },
+  "scope": "Generated test deployment only; no public hosting or live user data."
+}

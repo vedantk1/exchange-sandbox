@@ -1,6 +1,7 @@
 {
   "name": "exchange-sandbox",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.22.0",
@@ -21,7 +22,10 @@
     "check": "pnpm typecheck && pnpm format:check && pnpm test && pnpm test:integration && pnpm build:web && pnpm test:browser",
     "dev": "tsx scripts/with-postgres.ts dev",
     "admin:setup": "tsx scripts/with-postgres.ts setup",
-    "admin:reset": "tsx scripts/with-postgres.ts reset"
+    "admin:reset": "tsx scripts/with-postgres.ts reset",
+    "selfhost:prepare": "tsx scripts/deploy/prepare.ts",
+    "ops:benchmark": "tsx scripts/with-postgres.ts benchmark",
+    "ops:restore": "tsx scripts/with-postgres.ts restore"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",

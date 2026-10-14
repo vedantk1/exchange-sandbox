@@ -1,10 +1,28 @@
 # System architecture and stack
 
-Status: accepted architecture and TypeScript stack, based on the accepted [MVP](MVP.md). Milestones 1–3 implement the trading core, PostgreSQL persistence/recovery, invitation-only authentication, trader/admin HTTP routes and screens, audited controls, and live delivery. The two-account simulator now has administrator lifecycle/funding controls and browser regression coverage. Protected market orders now share the transactional engine and have server-bound previews. Session rollover, exports, deployment, and performance acceptance remain future work. Exact dependencies are pinned in the manifests and lockfile. See [development and validation](DEVELOPMENT.md) and the [HTTP API](API.md) for the implemented boundary.
+Status: accepted architecture and TypeScript stack, based on the accepted [MVP](MVP.md). Milestones 1–3 implement the trading core, PostgreSQL persistence/recovery, invitation-only authentication, trader/admin HTTP routes and screens, audited controls, and live delivery. The two-account simulator now has administrator lifecycle/funding controls and browser regression coverage. Protected market orders now share the transactional engine and have server-bound previews. Session rollover, retained archives, complete history reads, and coherent exports are implemented. Self-host packaging and operational verification are described in [release verification](RELEASE.md). Exact dependencies are pinned in the manifests and lockfile. See [development and validation](DEVELOPMENT.md) and the [HTTP API](API.md) for the implemented boundary.
 
 Use a modular TypeScript application, a React interface, and PostgreSQL as the authoritative store. The browser uses ordinary HTTP commands and queries and server-sent events for live updates. The implemented core uses exact integer arithmetic and one serialized database transaction for each exchange command. The initial deployment has one application process and one database.
 
 This favors inspectable correctness, a small installation, and approachable contributions. It accepts a throughput ceiling and a single application failure domain. This is a virtual exchange sandbox with one market; it does not need a distributed trading platform to meet its product contract.
+
+## Implemented command and read paths
+
+```mermaid
+flowchart LR
+  UI[React trader and admin UI] --> API[Fastify authentication and admission]
+  API --> Core[Serialized command services]
+  Core --> Domain[Pure integer matching and amounts]
+  Domain --> Core
+  Core --> DB[(PostgreSQL)]
+  DB --> Records[Orders, fills, journal, receipts, outbox]
+  DB --> Reads[Consistent snapshots, history and exports]
+  Records --> Live[Authorized SSE invalidations]
+  Live --> UI
+  Reads --> UI
+```
+
+A trading command commits its financial records, receipt, and notification evidence together. A lost response is resolved through the same command identity. SSE tells the client to read authoritative state; it never supplies invented balances or optimistic executions. Session rollover uses the same boundary for its final financial transition after publishing a durable recovery gate.
 
 ## Architecture options
 
@@ -235,9 +253,17 @@ A crash between those transactions leaves a visible recoverable gate. Recovery c
 
 Each command carries its expected session and, where relevant, a control/bot generation. Stale queued bot work and browser forms cannot affect the new session. The bot persists enough intent and outstanding order identity to resume from current state without reissuing starting funds or duplicating quotes. Bot replacement orders still obtain fresh priority as required by the MVP.
 
+Migration `006_session_lifecycle` stores an immutable operation identity, the control gate, and archive closure time. `session-lifecycle.ts` owns the two commits and startup recovery. The gate returns temporary `SESSION_ROLLING_OVER` responses for enrollment, reinstatement, and funding without consuming invitations or writing financial receipts. Access revocation and inspection remain available. Suspensions accepted during the gate are included when the completion transaction selects eligible accounts; their pending cancellations are completed before archiving.
+
+The completion transaction uses the normal accounting recovery boundary. It reconciles before and after its changes, then closes the previous session, allocates the new one, and persists its receipt. An invariant failure rolls back the transition while retaining the gate and fault. After the underlying issue is repaired, retrying the original rollover command can finish it; a failed reconciliation cannot clear the fault. Startup can expose inspection mode for a faulted transition.
+
+Closed-session financial writes are rejected by PostgreSQL triggers. Existing receipt replay remains available, and later stale-command rejections may append receipt/outbox/audit metadata to the old session. Those explanatory records do not mutate the archived financial result. History and export boundaries are explicit rather than claiming that every historical metadata view is frozen forever.
+
+Existing simulator accounts receive new-session funds once; no simulator is created merely by rollover if it has never been started. Human account access restrictions survive. A suspended human receives its first allocation only when activated in the new session. The old simulator generation and active-session checks fence queued work across the transition.
+
 ## Administrator-managed market simulator
 
-The simulator in `apps/server/src/demo-market/` runs under the existing singleton writer. `AdminService` owns start/stop and funding; the scheduler only executes durable enabled intent. The two-account design is the accepted MVP automation feature. Session rollover remains future work.
+The simulator in `apps/server/src/demo-market/` runs under the existing singleton writer. `AdminService` owns start/stop and funding; the scheduler only executes durable enabled intent. The two-account design is the accepted MVP automation feature. Rollover carries its account identities into the new session with exactly-once allocations and stopped intent.
 
 Migration `003_demo_market` stores the account identities, intent/status, reference price, cycle, command plan, and cursor. Migration `004_simulator_controls` adds a generation and pending-cleanup status, and permits grants to registered simulator accounts through the ordinary issuance journal. It preserves existing accounts, allocations, command plans, and history. Recipient validation at both the application and database boundaries rejects arbitrary service accounts; reconciliation includes simulator grants rather than relying on a human-user join.
 
@@ -273,7 +299,7 @@ Use reviewed explicit migrations under a migration lock. Refuse an incompatible/
 
 Structured logs should identify request, command, exchange session, sequence, and outcome while redacting credentials, cookies, invitation links, recovery links, and private payloads. Collect command latency, lock waits, failed invariants, rejected commands, recovery state, SSE reconnects, and bot inventory conditions. Expose liveness separately from readiness; a recovering service can be alive without being ready to trade.
 
-Development uses bundled PostgreSQL, a backend watch process on loopback port 3001, and Vite on localhost port 3000; an existing PostgreSQL instance and explicit port overrides are supported. A Compose deployment remains later work. The release installation will use one app container and PostgreSQL with durable storage; exposing it beyond localhost needs documented TLS/reverse-proxy settings, including SSE buffering/timeouts. No hosted authentication, monitoring, or email account is necessary.
+Development uses bundled PostgreSQL, a backend watch process on loopback port 3001, and Vite on localhost port 3000; an existing PostgreSQL instance and explicit port overrides are supported. The self-host Compose package runs the API, PostgreSQL with durable storage, and a Caddy container serving the compiled frontend and HTTPS proxy. Owner migrations and runtime database permissions are separate. The proxy preserves streaming invalidations and explicit origin/cookie checks; its setup and verified scope are in [release verification](RELEASE.md). No hosted authentication, monitoring, or email account is necessary.
 
 ## Validation and delivery order
 
@@ -298,7 +324,8 @@ Implementation order:
 4. Trader/admin UI, limit-order review, live synchronization, and explainable bounded history — implemented. Protected market-order previews and terminal outcomes are now implemented.
 5. Administrator-managed two-account simulator, inventory/funding, sparse-chart explanations, and browser CI regression coverage — implemented.
 6. Protected market orders, immutable 10-second previews, and recovery/browser regressions — implemented.
-7. Session rollover, exports, packaged self-host setup, restore drill, full-release browser acceptance, and measured workload validation.
+7. Session rollover, retained archives, complete history/search, and coherent CSV exports — implemented.
+8. Packaged self-host setup, backup/restore exercise, measured workload validation, and release acceptance — see [release verification](RELEASE.md).
 
 These increments are implementation order, not separate weakened definitions of done. Accounting and recovery are prerequisites for the polished trading experience.
 

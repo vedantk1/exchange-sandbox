@@ -3,6 +3,7 @@ name: Verify exchange sandbox
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -10,7 +11,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:18.4
@@ -42,6 +43,21 @@ jobs:
       - run: pnpm build:web
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:browser:external
+      - name: Build the self-host images
+        run: |
+          docker build --target api -t exchange-sandbox-api:ci .
+          docker build --target web -t exchange-sandbox-web:ci .
+          docker build --target operations -t exchange-sandbox-operations:ci .
+      - name: Verify a fresh database restore with PostgreSQL 18 tools
+        run: |
+          mkdir -p .local/operations
+          docker run --rm --network host -e DATABASE_URL="$TEST_DATABASE_URL" --mount type=bind,source="$PWD/.local/operations",target=/app/.local/operations exchange-sandbox-operations:ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: operational-verification-reports
+          path: .local/operations/*-result.json
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

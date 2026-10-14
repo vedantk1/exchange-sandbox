@@ -1,5 +1,6 @@
 import { AuthError, AuthService } from './auth/index.js';
 import { Exchange, WriterUnavailableError } from './exchange.js';
+import { configuredDatabaseUrl } from './config/database-url.js';
 
 class PromptCanceled extends Error {}
 
@@ -69,11 +70,13 @@ try {
     throw new Error('Use the setup or reset command without credential arguments.');
   if (!process.stdin.isTTY || !process.stdout.isTTY)
     throw new Error('An interactive local terminal is required.');
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error('DATABASE_URL is required.');
+  const databaseUrl = await configuredDatabaseUrl();
   // Acquire singleton ownership before collecting credentials, so an active
   // server produces an immediate stop-first explanation.
-  exchange = await Exchange.open(databaseUrl, { allowFaultedStartup: true });
+  exchange = await Exchange.open(databaseUrl, {
+    allowFaultedStartup: true,
+    migrations: process.env.NODE_ENV === 'production' ? 'verify' : 'apply',
+  });
   const auth = new AuthService(exchange);
   const handle = mode === 'setup' ? await prompt('Administrator handle: ', false) : undefined;
   const password = await prompt('New password (12–128 characters, hidden): ', true);

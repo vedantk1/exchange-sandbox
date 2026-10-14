@@ -11,9 +11,13 @@ if (
   mode !== 'demo' &&
   mode !== 'dev' &&
   mode !== 'setup' &&
-  mode !== 'reset'
+  mode !== 'reset' &&
+  mode !== 'restore' &&
+  mode !== 'benchmark'
 ) {
-  throw new Error('Usage: tsx scripts/with-postgres.ts <test|browser|demo|dev|setup|reset>');
+  throw new Error(
+    'Usage: tsx scripts/with-postgres.ts <test|browser|demo|dev|setup|reset|restore|benchmark>',
+  );
 }
 
 const persistent = mode === 'dev' || mode === 'setup' || mode === 'reset';
@@ -21,7 +25,9 @@ const localDirectory = '.local/development-postgres';
 const metadataPath = '.local/development-database.json';
 
 const connectionVariable =
-  mode === 'test' || mode === 'browser' ? 'TEST_DATABASE_URL' : 'DATABASE_URL';
+  mode === 'test' || mode === 'browser' || mode === 'restore' || mode === 'benchmark'
+    ? 'TEST_DATABASE_URL'
+    : 'DATABASE_URL';
 const externalUrl = process.env[connectionVariable];
 let child: ChildProcess | undefined;
 let stopDatabase: (() => Promise<void>) | undefined;
@@ -142,15 +148,23 @@ async function printDatabaseVersion(connectionString: string): Promise<void> {
 
 async function runChild(connectionString: string): Promise<number> {
   const arguments_ =
-    mode === 'test'
-      ? ['node_modules/vitest/vitest.mjs', 'run', '--config', 'vitest.integration.config.ts']
-      : mode === 'browser'
-        ? ['node_modules/@playwright/test/cli.js', 'test', ...process.argv.slice(3)]
-        : mode === 'demo'
-          ? ['--import', 'tsx', 'apps/server/src/demo.ts']
-          : mode === 'dev'
-            ? ['--import', 'tsx', 'scripts/dev.ts']
-            : ['--import', 'tsx', 'apps/server/src/operator-cli.ts', mode!];
+    mode === 'restore' || mode === 'benchmark'
+      ? ['--import', 'tsx', `apps/server/src/operations/${mode}.ts`]
+      : mode === 'test'
+        ? [
+            'node_modules/vitest/vitest.mjs',
+            'run',
+            '--config',
+            'vitest.integration.config.ts',
+            ...process.argv.slice(3),
+          ]
+        : mode === 'browser'
+          ? ['node_modules/@playwright/test/cli.js', 'test', ...process.argv.slice(3)]
+          : mode === 'demo'
+            ? ['--import', 'tsx', 'apps/server/src/demo.ts']
+            : mode === 'dev'
+              ? ['--import', 'tsx', 'scripts/dev.ts']
+              : ['--import', 'tsx', 'apps/server/src/operator-cli.ts', mode!];
   return new Promise<number>((resolve, reject) => {
     child = spawn(process.execPath, arguments_, {
       stdio: 'inherit',

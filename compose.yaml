@@ -1,0 +1,134 @@
+services:
+  postgres:
+    image: postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
+    environment:
+      POSTGRES_USER: sandbox_owner
+      POSTGRES_DB: exchange
+      POSTGRES_PASSWORD_FILE: /run/secrets/owner_password
+    secrets:
+      - owner_password
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U sandbox_owner -d exchange']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      target: api
+    image: exchange-sandbox-api:local
+    command: [tsx, apps/server/src/deploy/initialize.ts]
+    environment:
+      DATABASE_URL_FILE: /run/secrets/owner_database_url
+      RUNTIME_DATABASE_URL_FILE: /run/secrets/runtime_database_url
+    secrets:
+      - owner_database_url
+      - runtime_database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  api:
+    image: exchange-sandbox-api:local
+    environment:
+      DATABASE_URL_FILE: /run/secrets/runtime_database_url
+      API_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN to the exact HTTPS origin}
+      TRUST_PROXY_HOPS: '1'
+    secrets:
+      - runtime_database_url
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3001/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: web
+    image: exchange-sandbox-web:local
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Set PUBLIC_HOST to the hostname in PUBLIC_ORIGIN}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN to the exact HTTPS origin}
+    ports:
+      - '${BIND_HOST:-0.0.0.0}:${HTTP_PORT:-80}:80'
+      - '${BIND_HOST:-0.0.0.0}:${HTTPS_PORT:-443}:443'
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  operator:
+    image: exchange-sandbox-api:local
+    profiles: [tools]
+    entrypoint: [tsx, apps/server/src/operator-cli.ts]
+    environment:
+      DATABASE_URL_FILE: /run/secrets/runtime_database_url
+    secrets:
+      - runtime_database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  operations:
+    build:
+      context: .
+      target: operations
+    image: exchange-sandbox-operations:local
+    profiles: [tools]
+    environment:
+      DATABASE_URL_FILE: /run/secrets/owner_database_url
+    secrets:
+      - owner_database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./.local/operations:/app/.local/operations
+
+secrets:
+  owner_password:
+    file: .local/self-host/secrets/owner-password
+  owner_database_url:
+    file: .local/self-host/secrets/owner-url
+  runtime_database_url:
+    file: .local/self-host/secrets/runtime-url
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-10-14T07:49:53.784Z",
+  "kind": "core-command-benchmark",
+  "environment": {
+    "node": "v24.19.0",
+    "postgres": "18.4",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "cpuModel": "Apple M1 Pro",
+    "logicalCpus": 10,
+    "memoryGiB": 16
+  },
+  "workload": {
+    "quantity": "0.0002 BTC-SIM",
+    "price": "50000 USD-SIM",
+    "description": "Closed-loop limit sell/buy pairs against one serialized writer and local PostgreSQL; matching and ledger commits included."
+  },
+  "results": [
+    {
+      "concurrency": 1,
+      "pairsPerWorker": 1000,
+      "warmupPairsPerWorker": 10,
+      "measuredCommands": 2000,
+      "elapsedMs": 6371.57,
+      "commandsPerSecond": 313.89,
+      "latencyMs": {
+        "p50": 3.091,
+        "p95": 4.743,
+        "p99": 6.711
+      },
+      "errors": 0,
+      "reconciliation": true,
+      "restartReceiptReplay": true,
+      "fills": 1010
+    },
+    {
+      "concurrency": 4,
+      "pairsPerWorker": 1000,
+      "warmupPairsPerWorker": 10,
+      "measuredCommands": 8000,
+      "elapsedMs": 33600.12,
+      "commandsPerSecond": 238.09,
+      "latencyMs": {
+        "p50": 16.145,
+        "p95": 26.418,
+        "p99": 34.756
+      },
+      "errors": 0,
+      "reconciliation": true,
+      "restartReceiptReplay": true,
+      "fills": 4040
+    }
+  ],
+  "limits": "Core calls only. HTTP, authentication, TLS, live clients, network latency, sustained load, failure rate at saturation, and production capacity are not measured."
+}

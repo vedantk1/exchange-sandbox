@@ -2,7 +2,7 @@
 
 Status: MVP product scope accepted. The defaults below define the agreed exchange sandbox, with real funds excluded. They are requirements, not claims about implemented features. The accepted technical design is recorded separately in [System architecture and stack](ARCHITECTURE.md); [development and validation](DEVELOPMENT.md) tracks the implemented milestone.
 
-The accepted automation design is the two-account demo market simulator below. It replaces the earlier single quoting-bot proposal. Its administrator controls, inventory visibility, and audited funding are implemented. Protected market orders now implement the flow below; session rollover and exports remain future work.
+The accepted automation design is the two-account demo market simulator below. It replaces the earlier single quoting-bot proposal. Its administrator controls, inventory visibility, and audited funding are implemented. Protected market orders, session rollover, retained archives, complete history pagination/search, and consistent CSV exports implement the flows below. Release evidence is tracked in [development](DEVELOPMENT.md) and [release verification](RELEASE.md).
 
 The product lets a developer or technical learner run a small exchange, trade virtual assets, and inspect how orders, executions, fees, and balances change. Its primary value is understandable exchange behavior. It does not promise realistic trading returns or reproduce an external exchange's liquidity.
 
@@ -232,7 +232,7 @@ Grants never modify an existing reservation or a prior record. Direct balance ed
 
 While rollover is in progress, invitation redemption, reinstatement, and grants are temporarily unavailable. Already accepted enrollments or grants must resolve before closing the old session, and those enrolled accounts then participate in the normal carryover. Requests not yet accepted receive a temporary-unavailability response and can be retried after the transition without consuming an invitation. Every allocation belongs to exactly one session; no account is silently omitted or funded in an already archived session.
 
-Retries must recover the outcome of the same new-session request. An interrupted transition stays visibly unavailable until completed or recovered; it must not silently create another session. Archived sessions cannot be reopened for trading, and the MVP has no delete-history action.
+Retries must recover the outcome of the same new-session request. An interrupted transition stays visibly unavailable until completed or recovered; it must not silently create another session. Archived sessions cannot be reopened for trading, and the MVP has no delete-history action. The stored archive state is `CLOSED`; its orders, fills, balances, allocations, grants, and journal are protected against further financial writes. Later stale-command rejections and recovery receipts may still append explanatory metadata without changing those financial records. History and exports identify the session and their recorded read boundary.
 
 ## Failure behavior and audit history
 

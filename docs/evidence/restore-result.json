@@ -1,0 +1,43 @@
+{
+  "generatedAt": "2026-10-14T07:47:38.927Z",
+  "kind": "fresh-database-pg-dump-restore",
+  "postgres": "18.4 (Debian 18.4-1.pgdg13+1)",
+  "format": "custom",
+  "dumpMs": 92.47,
+  "restoreMs": 137.85,
+  "comparedTables": 22,
+  "sourceRows": {
+    "exchange_sessions": 2,
+    "exchange_control": 1,
+    "session_rollovers": 1,
+    "accounts": 7,
+    "users": 3,
+    "login_sessions": 1,
+    "invitations": 3,
+    "recovery_tokens": 1,
+    "allocations": 8,
+    "balances": 22,
+    "orders": 2,
+    "fills": 1,
+    "grants": 1,
+    "journal_transactions": 12,
+    "journal_entries": 46,
+    "receipts": 13,
+    "outbox": 15,
+    "admin_audit": 13,
+    "demo_market": 2,
+    "market_previews": 1,
+    "market_preview_uses": 1,
+    "schema_migrations": 6
+  },
+  "checks": {
+    "exactTableEvidence": true,
+    "reconciliation": true,
+    "loginPreserved": true,
+    "originalOrderReceiptReplay": true,
+    "protectedMarketPreviewPreserved": true,
+    "originalRolloverReceiptReplay": true
+  },
+  "archiveSha256": "8319c9d9d52eff03fb428e9038d20cc598f91b52dc4ac2ce1f6a6f803690953a",
+  "scope": "Generated fixture and fresh databases only; this is a logical restore drill, not disaster recovery for an existing deployment."
+}
