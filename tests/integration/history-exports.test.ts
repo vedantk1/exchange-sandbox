@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { get, type IncomingMessage } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_DATABASE_BUDGETS } from '../../packages/database/src/budgets.js';
@@ -48,6 +48,7 @@ describe('bounded complete history downloads', () => {
   });
 
   async function fixture(options: Parameters<typeof createApiFixture>[0] = {}) {
+    await mkdir('.local', { recursive: true, mode: 0o700 });
     directory = await mkdtemp('.local/history-export-test-');
     context = await createApiFixture({ ...options, exports: { directory, ...options.exports } });
     return context;
