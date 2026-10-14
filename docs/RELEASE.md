@@ -71,11 +71,12 @@ Use PostgreSQL 18 `pg_dump`/`pg_restore` for `pnpm ops:restore`; `PG_DUMP_BIN` a
 
 ```sh
 docker compose --env-file .local/self-host/compose.env --profile tools build operations
-docker compose --env-file .local/self-host/compose.env --profile tools run --rm operations
+mkdir -p .local/operations
+docker compose --env-file .local/self-host/compose.env --profile tools run --rm --user "$(id -u):$(id -g)" operations
 BENCHMARK_PAIRS=1000 pnpm ops:benchmark
 ```
 
-The Docker restore exercise uses the configured PostgreSQL service to create fresh generated databases, then removes those databases after verification. It does not restore over an existing installation. Reports and the private generated fixture dump are retained under ignored `.local/operations/`. Commit only the reviewed, sanitized JSON evidence; never commit a database dump or its authentication material.
+The Docker restore exercise uses the configured PostgreSQL service to create fresh generated databases, then removes those databases after verification. It does not restore over an existing installation. Running the container with the operator's UID/GID keeps its private files readable by that operator on Linux. Reports and the private generated fixture dump are retained under ignored `.local/operations/`. Commit only the reviewed, sanitized JSON evidence; never commit a database dump or its authentication material.
 
 The reproducible workload measures committed matching commands against real PostgreSQL, reports latency and throughput for its explicit configuration, and checks financial reconciliation and receipt replay. It identifies the runtime, platform, workload, and concurrency without machine or user identifiers. Results establish the measured workload only; they do not claim general hosting capacity, internet latency, or real-money readiness.
 
