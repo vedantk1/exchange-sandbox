@@ -181,6 +181,10 @@ Balances are transactionally maintained projections of the journal. Per-order re
 
 Application roles cannot update/delete committed journal entries, fills, or audit history. This is an application integrity boundary, not a claim of tamper resistance against the database owner.
 
+Migration `008_order_integrity` protects every existing and future order's ID, session/account binding, side, type, original quantity, price, acceptance sequence, and creation timestamp with a null-safe row comparison on update. Its triggers reject order deletion and whole-table truncation. Settlement and cancellation continue updating only status, remaining quantity, reserved amount, cancellation reason, and update time under the existing financial constraints. Typed SQL also makes accepted terms insert-only.
+
+Owner provisioning removes table-wide order updates, deletion, truncation, and old column update grants from the runtime role and `PUBLIC`, then grants update access to the five execution fields only. It checks effective table and column privileges before committing. The database triggers additionally protect installations using older grants. This adds protection against unintended SQL writes without changing financial history, matching priority, receipt identities, or the recovery protocol. Deliberate database-owner DDL can alter protections; the owner remains outside the application's integrity boundary.
+
 ## Persistent records
 
 The schema design should distinguish these concepts without requiring one table per UI screen:

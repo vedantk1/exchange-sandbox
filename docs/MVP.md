@@ -138,6 +138,8 @@ All prices and quantities below are illustrative simulation settings, not curren
 
 An accepted order is Open, Partially filled, Filled, or Canceled. Canceled orders can have completed fills and always retain their executed quantity. Rejected submissions appear in the submitter's history with a reason. Submitting, Cancel pending, and Unknown are interface states while the final result is unresolved; they do not assert that a trade happened.
 
+An accepted order's identity, account, session, side, type, original quantity, price/protection bound, acceptance sequence, and creation time remain fixed across execution, cancellation, and recovery. Its remaining quantity, reservation, status, cancellation reason, and update time record execution progress. Orders remain in history; cancellation releases remaining funds without deleting the order.
+
 The minimum-notional rule applies when submitting an order. Valid executions and remaining quantities may fall below that minimum. The guard-rounding rules above are explicit exceptions to rejecting excess input precision; they produce a displayed valid price before confirmation.
 
 ### Funds and fee treatment

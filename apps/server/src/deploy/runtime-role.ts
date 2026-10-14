@@ -44,6 +44,32 @@ export async function provisionRuntimeRole(
     await owner.query(
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${roleName}`,
     );
+    // A table-wide revoke also removes old column grants. PUBLIC grants must
+    // not restore access to accepted terms through implicit membership.
+    await owner.query(`REVOKE UPDATE, DELETE, TRUNCATE ON public.orders FROM PUBLIC, ${roleName}`);
+    await owner.query(
+      `GRANT UPDATE (status, remaining_quantity, reserved_amount, cancel_reason, updated_at)
+        ON public.orders TO ${roleName}`,
+    );
+    const orderPrivileges = await owner.query<{
+      broad_update: boolean;
+      deletion: boolean;
+      truncation: boolean;
+      terms_update: boolean;
+    }>(
+      `SELECT has_table_privilege($1, 'public.orders', 'UPDATE') AS broad_update,
+        has_table_privilege($1, 'public.orders', 'DELETE') AS deletion,
+        has_table_privilege($1, 'public.orders', 'TRUNCATE') AS truncation,
+        EXISTS (
+          SELECT 1 FROM pg_attribute
+          WHERE attrelid = 'public.orders'::regclass AND attnum > 0 AND NOT attisdropped
+            AND attname NOT IN ('status', 'remaining_quantity', 'reserved_amount', 'cancel_reason', 'updated_at')
+            AND has_column_privilege($1, attrelid, attnum, 'UPDATE')
+        ) AS terms_update`,
+      [roleName],
+    );
+    if (Object.values(orderPrivileges.rows[0]!).some(Boolean))
+      throw new Error('The runtime role retains unexpected order update or deletion privileges.');
     await owner.query(
       `REVOKE INSERT, UPDATE, DELETE ON schema_migrations FROM PUBLIC, ${roleName}`,
     );

@@ -37,6 +37,7 @@ The demo, integration, and browser test runners start real, temporary PostgreSQL
 - Price/time matching at the resting order's price, including partial fills and self-trade prevention.
 - Exact scaled-integer quantities, prices, reservations, and fees; decimal strings at the service boundary.
 - Atomic orders, fills, double-entry journal entries, balance projections, command receipts, and notification records.
+- Database-protected accepted order terms, retained order rows, and runtime updates restricted to execution state.
 - Cancellation of remaining quantity with no duplicated fund release.
 - Protected market orders with a server-bound 5% price guard, a 10-second preview, immediate execution, and explicit canceled remainders.
 - Durable command identity: retries resolve the original outcome, while changed payloads are rejected.

@@ -24,6 +24,8 @@ An accepted command response reports committed state. Business rejections are du
 
 A stored receipt records the original result, including when the corresponding order later fills or is canceled. Read a fresh account snapshot for current balances and order states. A timeout is ambiguous; it does not authorize inventing a new command identity and submitting the same trade again.
 
+Accepted order identities, account/session bindings, side/type, original quantity, price/protection bound, sequence, and creation time are database-protected. Cancellation updates execution state and releases remaining funds while retaining the order; it never deletes it. Migration `008_order_integrity` preserves existing records and the original receipt recovery protocol.
+
 All monetary values are strings. Quantity accepts at most four decimal places, price at most two, and USD-SIM balances at most nine. JavaScript numbers, exponent notation, unsupported precision, and implicit rounding are rejected. The [MVP](MVP.md) defines fixed market rules and limits.
 
 ## Admission, overload, and disconnects

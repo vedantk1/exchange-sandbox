@@ -4,6 +4,9 @@ import type { ColumnType, Generated, GeneratedAlways } from 'kysely';
 export type ExactInteger = ColumnType<string, string, string>;
 type DefaultExactInteger = ColumnType<string, string | undefined, string>;
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
+/** Inserted terms remain selectable but cannot be changed through typed settlement queries. */
+type InsertOnly<T> = ColumnType<T, T, never>;
+type InsertOnlyTimestamp = ColumnType<Date, Date | string | undefined, never>;
 type JsonObject = ColumnType<
   Record<string, unknown>,
   Record<string, unknown>,
@@ -91,19 +94,19 @@ export interface Database {
     command_id: string;
   };
   orders: {
-    id: string;
-    session_id: string;
-    account_id: string;
-    side: 'BUY' | 'SELL';
-    type: 'LIMIT' | 'MARKET';
+    id: InsertOnly<string>;
+    session_id: InsertOnly<string>;
+    account_id: InsertOnly<string>;
+    side: InsertOnly<'BUY' | 'SELL'>;
+    type: InsertOnly<'LIMIT' | 'MARKET'>;
     status: 'OPEN' | 'PARTIALLY_FILLED' | 'FILLED' | 'CANCELED';
-    quantity: ExactInteger;
+    quantity: InsertOnly<string>;
     remaining_quantity: ExactInteger;
-    price: ExactInteger;
-    acceptance_sequence: ExactInteger;
+    price: InsertOnly<string>;
+    acceptance_sequence: InsertOnly<string>;
     reserved_amount: ExactInteger;
     cancel_reason: string | null;
-    created_at: Timestamp;
+    created_at: InsertOnlyTimestamp;
     updated_at: Timestamp;
   };
   fills: {
