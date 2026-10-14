@@ -7,7 +7,7 @@ import type {
   WorkspaceView,
 } from '@sandbox/contracts';
 import type { CommandOutcome } from '../lib/api.js';
-import { BalanceActivity, BalanceCards, HistoryPanel, OrdersTable } from './AccountPanels.js';
+import { BalanceActivity, BalanceCards, OrdersTable } from './AccountPanels.js';
 import { OrderBook, PriceChart, RecentTrades } from './MarketPanels.js';
 import { CancelDialog, OrderDetailDialog } from './OrderDialogs.js';
 import { OrderTicket } from './OrderTicket.js';
@@ -18,7 +18,7 @@ export interface TraderWorkspaceProps {
   workspace: WorkspaceView;
   connected: boolean;
   busy: boolean;
-  section: 'trade' | 'orders' | 'balances' | 'history';
+  section: 'trade' | 'orders' | 'balances';
   runCommand: (
     path: string,
     body: Record<string, unknown>,
@@ -54,8 +54,9 @@ export function TraderWorkspace({
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const account = workspace.account;
-  const trading = connected && !workspace.fault && workspace.marketState === 'TRADING';
-  const cancelEnabled = connected && !workspace.fault;
+  const trading =
+    connected && !workspace.rollover && !workspace.fault && workspace.marketState === 'TRADING';
+  const cancelEnabled = connected && !workspace.rollover && !workspace.fault;
   const disabledReason = !connected
     ? 'Reconnecting. New orders wait until the workspace is current.'
     : workspace.fault
@@ -97,13 +98,11 @@ export function TraderWorkspace({
     trade: 'BTC-SIM / USD-SIM',
     orders: 'Your orders',
     balances: 'Balances & activity',
-    history: 'Execution history',
   };
   const descriptions = {
     trade: 'One shared book. Every execution happens here.',
     orders: 'Track accepted orders, remaining quantities, and final outcomes.',
     balances: 'Every allocation, trade, fee, and reservation has a record.',
-    history: 'Inspect your executions and durable command outcomes.',
   };
 
   return (
@@ -247,16 +246,15 @@ export function TraderWorkspace({
             disabled={!cancelEnabled || busy}
           />
           <div className="trader-panel-note">
-            All open orders plus the latest {account.historyLimit} accepted orders. Rejected
-            submissions are recorded in <Link to="/history">History</Link>.
+            All open orders plus the latest {account.historyLimit} accepted orders. Browse complete
+            orders, rejected submissions, and archived sessions in{' '}
+            <Link to="/history">History</Link>.
           </div>
         </section>
-      ) : section === 'balances' ? (
+      ) : (
         <div className="trader-section-stack">
           <BalanceActivity account={account} onSelect={setSelectedOrder} />
         </div>
-      ) : (
-        <HistoryPanel account={account} onSelect={setSelectedOrder} />
       )}
       <OrderDetailDialog
         id={selectedOrder}

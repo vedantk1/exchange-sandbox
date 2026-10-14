@@ -40,6 +40,10 @@ import { CommandRunner } from './lib/commands.js';
 import { useWorkspace } from './lib/workspace.js';
 import { marketOrderOutcome, type MarketOrderOutcome } from './trader/market-order.js';
 
+const SessionHistory = lazy(() =>
+  import('./history/SessionHistory.js').then((module) => ({ default: module.SessionHistory })),
+);
+
 const TraderWorkspace = lazy(() =>
   import('./trader/index.js').then((module) => ({ default: module.TraderWorkspace })),
 );
@@ -149,13 +153,23 @@ function AuthenticatedWorkspace({
   );
   const [handoff, setHandoff] = useState<{ token: string; recovery: boolean } | null>(null);
   const readAccount = useCallback(
-    (id: string) =>
-      api<AccountView>(`/api/admin/traders/${id}/workspace`, undefined, undefined, user.accountId),
+    (id: string, sessionId?: string) =>
+      api<AccountView>(
+        `/api/admin/traders/${id}/workspace${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`,
+        undefined,
+        undefined,
+        user.accountId,
+      ),
     [user.accountId],
   );
   const readOrder = useCallback(
     (id: string) =>
-      api<OrderDetailResponse>(`/api/orders/${id}`, undefined, undefined, user.accountId),
+      api<OrderDetailResponse>(
+        `/api/${user.role === 'ADMIN' ? 'admin/' : ''}orders/${id}`,
+        undefined,
+        undefined,
+        user.accountId,
+      ),
     [user.accountId],
   );
   const previewMarket = useCallback(
@@ -182,7 +196,9 @@ function AuthenticatedWorkspace({
                 ? 'Reconciliation found an accounting problem. Trading remains halted; inspect the audit result.'
                 : execution
                   ? 'Market order confirmed. Review the final execution outcome.'
-                  : 'Command confirmed.',
+                  : result.data?.newSessionId && result.data?.previousSessionId
+                    ? `New session ${String(result.data.newSessionId).slice(0, 8)} is ready and paused. The previous session is archived; starting allocations were issued once.`
+                    : 'Command confirmed.',
           bad: result.status === 'REJECTED' || result.data?.ok === false,
         });
         try {
@@ -220,7 +236,11 @@ function AuthenticatedWorkspace({
     if (runner.pending) void resolve();
   }, [runner, resolve]);
   async function runCommand(path: string, body: Record<string, unknown>, label: string) {
-    if (!workspace.data || !connected) {
+    if (
+      !workspace.data ||
+      !connected ||
+      (workspace.data.rollover && path !== '/api/admin/sessions/rollover')
+    ) {
       setNotice({
         message: 'Wait for a live, refreshed workspace before submitting a command.',
         bad: true,
@@ -242,7 +262,23 @@ function AuthenticatedWorkspace({
     }
   }
   const data = workspace.data;
-  const busy = runner.busy || Boolean(runner.pending) || Boolean(runner.error) || signingOut;
+  const sessionSeen = useRef<string | null>(null);
+  const [sessionChange, setSessionChange] = useState<{ previous: string; current: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!data) return;
+    if (sessionSeen.current && sessionSeen.current !== data.sessionId) {
+      setSessionChange({ previous: sessionSeen.current, current: data.sessionId });
+    }
+    sessionSeen.current = data.sessionId;
+  }, [data?.sessionId]);
+  const busy =
+    Boolean(data?.rollover) ||
+    runner.busy ||
+    Boolean(runner.pending) ||
+    Boolean(runner.error) ||
+    signingOut;
   void version; // Runner notifications render its durable state without copying it into another store.
 
   return (
@@ -346,6 +382,26 @@ function AuthenticatedWorkspace({
         </button>
       </div>
       <main className="app-main" id="workspace-content">
+        {data?.rollover && (
+          <div className="notice warning rollover-progress" role="status">
+            <strong>Session rollover in progress.</strong> Existing orders are being canceled and
+            final records preserved. New trading and funding are temporarily disabled. Operation{' '}
+            <span className="mono">{data.rollover.operationId.slice(0, 8)}</span> resumes safely
+            after a restart.
+          </div>
+        )}
+        {sessionChange && (
+          <div className="notice success session-change-banner" role="status">
+            <strong>A new trading session is ready.</strong> Session{' '}
+            <span className="mono">{sessionChange.previous.slice(0, 8)}</span> is archived. Session{' '}
+            <span className="mono">{sessionChange.current.slice(0, 8)}</span> starts paused with
+            fresh allocations. Review the new session before submitting; previous forms and previews
+            have been cleared.{' '}
+            <button className="quiet-button" onClick={() => setSessionChange(null)}>
+              Dismiss session change
+            </button>
+          </div>
+        )}
         {data?.fault && (
           <div className="notice danger" role="alert">
             <strong>Trading is halted for an accounting check.</strong> Funds cannot move until the
@@ -363,7 +419,8 @@ function AuthenticatedWorkspace({
             <div>
               <strong>{runner.busy ? 'Resolving command…' : 'Command outcome unknown'}</strong>
               <p>
-                {runner.pending.label} ·{' '}
+                {runner.pending.label} · session{' '}
+                <span className="mono">{runner.pending.body.sessionId.slice(0, 8)}</span> ·{' '}
                 <span className="mono">{runner.pending.body.commandId.slice(0, 8)}</span>.{' '}
                 {runner.error ??
                   'Waiting for a committed response. Refreshing this page keeps the original request identity.'}
@@ -421,7 +478,9 @@ function AuthenticatedWorkspace({
                   path="/admin"
                   element={
                     <AdminWorkspace
+                      key={data.sessionId}
                       workspace={data}
+                      readOrder={readOrder}
                       connected={connected}
                       busy={busy}
                       runCommand={runCommand}
@@ -436,17 +495,25 @@ function AuthenticatedWorkspace({
                     key={section}
                     path={`/${section}`}
                     element={
-                      <TraderWorkspace
-                        key={data.sessionId}
-                        workspace={data}
-                        section={section as 'trade' | 'orders' | 'balances' | 'history'}
-                        connected={connected}
-                        busy={busy}
-                        runCommand={runCommand}
-                        refresh={workspace.refresh}
-                        readOrder={readOrder}
-                        previewMarket={previewMarket}
-                      />
+                      section === 'history' ? (
+                        <SessionHistory
+                          workspace={data}
+                          readOrder={readOrder}
+                          readAccount={readAccount}
+                        />
+                      ) : (
+                        <TraderWorkspace
+                          key={data.sessionId}
+                          workspace={data}
+                          section={section as 'trade' | 'orders' | 'balances'}
+                          connected={connected}
+                          busy={busy}
+                          runCommand={runCommand}
+                          refresh={workspace.refresh}
+                          readOrder={readOrder}
+                          previewMarket={previewMarket}
+                        />
+                      )
                     }
                   />
                 ))

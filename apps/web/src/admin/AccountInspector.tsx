@@ -42,6 +42,7 @@ export function AccountInspector({
   fault,
   onAction,
   retry,
+  onHistory,
 }: {
   account: AccountView | null;
   trader: Trader | undefined;
@@ -54,6 +55,7 @@ export function AccountInspector({
   fault: boolean;
   onAction: (action: AdminAction) => void;
   retry: () => void;
+  onHistory: () => void;
 }) {
   const [tab, setTab] = useState<'orders' | 'fills' | 'activity'>('orders');
   const [query, setQuery] = useState('');
@@ -186,6 +188,9 @@ export function AccountInspector({
           </button>
         </div>
       )}
+      <button className="button ghost" onClick={onHistory}>
+        Browse complete session history
+      </button>
       {account && (
         <>
           <div className="admin-balances">

@@ -37,11 +37,13 @@ export function OrdersTable({
   onSelect,
   onCancel,
   disabled,
+  readOnly = false,
 }: {
   orders: WorkspaceOrderView[];
   onSelect: (id: string) => void;
   onCancel: (orders: WorkspaceOrderView[]) => void;
   disabled: boolean;
+  readOnly?: boolean;
 }) {
   if (!orders.length)
     return (
@@ -108,7 +110,7 @@ export function OrdersTable({
                 <OrderStatus status={order.status} />
               </td>
               <td className="trader-actions-cell">
-                {['OPEN', 'PARTIALLY_FILLED'].includes(order.status) && (
+                {!readOnly && ['OPEN', 'PARTIALLY_FILLED'].includes(order.status) && (
                   <button
                     className="button ghost small"
                     type="button"
@@ -269,142 +271,5 @@ export function ActivityTable({
         </tbody>
       </table>
     </div>
-  );
-}
-
-export function HistoryPanel({
-  account,
-  onSelect,
-}: {
-  account: AccountView;
-  onSelect: (id: string) => void;
-}) {
-  const [tab, setTab] = useState<'fills' | 'commands'>('fills');
-  return (
-    <section className="trader-panel">
-      <div className="trader-panel-header">
-        <div className="trader-tabs" role="group" aria-label="History view">
-          <button
-            type="button"
-            aria-pressed={tab === 'fills'}
-            className={tab === 'fills' ? 'active' : ''}
-            onClick={() => setTab('fills')}
-          >
-            Executions <span>{account.fills.length}</span>
-          </button>
-          <button
-            type="button"
-            aria-pressed={tab === 'commands'}
-            className={tab === 'commands' ? 'active' : ''}
-            onClick={() => setTab('commands')}
-          >
-            Command outcomes
-          </button>
-        </div>
-        <span className="trader-caption">Latest {account.historyLimit} per view</span>
-      </div>
-      {tab === 'fills' ? (
-        account.fills.length ? (
-          <div className="trader-table-scroll">
-            <table className="trader-table">
-              <thead>
-                <tr>
-                  <th>Time / order</th>
-                  <th>Side / role</th>
-                  <th className="numeric">Quantity · BTC-SIM</th>
-                  <th className="numeric">Price · USD-SIM</th>
-                  <th className="numeric">Notional · USD-SIM</th>
-                  <th className="numeric">Your fee · USD-SIM</th>
-                </tr>
-              </thead>
-              <tbody>
-                {account.fills.map((fill) => (
-                  <tr key={`${fill.id}:${fill.orderId}`}>
-                    <td>
-                      <time dateTime={fill.timestamp}>{timeLabel(fill.timestamp)}</time>
-                      <button
-                        className="trader-link trader-cell-sub mono"
-                        type="button"
-                        onClick={() => onSelect(fill.orderId)}
-                      >
-                        {shortId(fill.orderId)} ↗
-                      </button>
-                    </td>
-                    <td>
-                      <span className={`trader-side ${fill.side.toLowerCase()}`}>
-                        {stateLabel(fill.side)}
-                      </span>
-                      <span className="trader-cell-sub">{stateLabel(fill.role)}</span>
-                    </td>
-                    <td className="numeric">{amount(fill.quantity, 4)}</td>
-                    <td className="numeric">{amount(fill.price)}</td>
-                    <td className="numeric">{amount(fill.notional)}</td>
-                    <td className="numeric">{amount(fill.fee)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="trader-empty">
-            <strong>No executions yet</strong>
-            <p>When your orders match, each execution and its exact fee appears here.</p>
-          </div>
-        )
-      ) : account.commands.length ? (
-        <div className="trader-table-scroll">
-          <table className="trader-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Command</th>
-                <th>Sequence</th>
-                <th>Outcome</th>
-                <th>Order / reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              {account.commands.map((command) => (
-                <tr key={command.commandId}>
-                  <td>
-                    <time dateTime={command.createdAt}>{timeLabel(command.createdAt)}</time>
-                  </td>
-                  <td className="mono" title={command.commandId}>
-                    {shortId(command.commandId)}
-                  </td>
-                  <td className="mono">#{command.sequence}</td>
-                  <td>
-                    <OrderStatus status={command.status} />
-                  </td>
-                  <td>
-                    {command.orderId ? (
-                      <button
-                        className="trader-link mono"
-                        type="button"
-                        onClick={() => onSelect(command.orderId!)}
-                      >
-                        {shortId(command.orderId)} ↗
-                      </button>
-                    ) : command.code ? (
-                      stateLabel(command.code)
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="trader-empty">
-          <strong>No trading commands yet</strong>
-          <p>Accepted and rejected submissions remain visible here after their outcome is known.</p>
-        </div>
-      )}
-      <div className="trader-panel-note">
-        Current session only. Executions are permanent; a later cancellation cannot reverse them.
-      </div>
-    </section>
   );
 }

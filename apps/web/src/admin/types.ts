@@ -1,4 +1,4 @@
-import type { AccountView, WorkspaceView } from '@sandbox/contracts';
+import type { AccountView, OrderDetailResponse, WorkspaceView } from '@sandbox/contracts';
 import type { CommandOutcome } from '../lib/api';
 
 export type AdminData = NonNullable<WorkspaceView['admin']>;
@@ -8,7 +8,8 @@ export type GrantTarget = { accountId: string; label: string };
 export interface AdminWorkspaceProps {
   workspace: WorkspaceView;
   refresh: () => Promise<void>;
-  readAccount: (accountId: string) => Promise<AccountView>;
+  readAccount: (accountId: string, sessionId?: string) => Promise<AccountView>;
+  readOrder: (orderId: string) => Promise<OrderDetailResponse>;
   runCommand: (
     path: string,
     payload: Record<string, unknown>,
@@ -27,4 +28,11 @@ export interface AdminAction {
   secret?: 'join' | 'recover';
   grant?: GrantTarget;
   payload?: Record<string, unknown>;
+  rollover?: {
+    sessionId: string;
+    participants: string;
+    active: string;
+    openOrders: string;
+    simulatorAccounts: number;
+  };
 }

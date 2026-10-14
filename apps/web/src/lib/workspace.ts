@@ -72,6 +72,7 @@ export function useWorkspace(user: User, onUnauthorized: () => void) {
   useEffect(() => {
     let disposed = false;
     let source: EventSource | undefined;
+    let sourceSession: string | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let generation = 0;
     let lastMessage = performance.now();
@@ -94,6 +95,10 @@ export function useWorkspace(user: User, onUnauthorized: () => void) {
     const sync = async (version: number) => {
       try {
         await refresh();
+        if (alive(version) && sourceSession !== current.current?.sessionId) {
+          recover();
+          return;
+        }
         if (alive(version) && source?.readyState === EventSource.OPEN) setConnection('live');
       } catch {
         if (alive(version)) recover();
@@ -107,6 +112,7 @@ export function useWorkspace(user: User, onUnauthorized: () => void) {
         await refresh();
         if (!alive(version) || !current.current) return;
         const { sessionId, cursor } = current.current;
+        sourceSession = sessionId;
         source = new EventSource(
           `/api/events?sessionId=${encodeURIComponent(sessionId)}&cursor=${encodeURIComponent(cursor)}`,
         );

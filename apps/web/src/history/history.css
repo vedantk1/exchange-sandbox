@@ -1,0 +1,160 @@
+.session-history {
+  min-width: 0;
+}
+.history-session-panel,
+.history-account-panel {
+  padding: 22px;
+}
+.history-session-controls,
+.history-filters {
+  display: flex;
+  gap: 14px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.history-session-controls .field {
+  flex: 1;
+  min-width: 230px;
+  margin: 0;
+}
+.history-session-state {
+  margin-top: 20px;
+  display: grid;
+  gap: 8px;
+  border-left: 3px solid var(--accent, #2ea89b);
+  padding: 4px 0 4px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.history-session-state .mono {
+  overflow-wrap: anywhere;
+}
+.history-session-state.archived {
+  border-color: #a887de;
+}
+.history-account-panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.history-account-search .field {
+  margin-bottom: 12px;
+}
+.history-account-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.history-account-results .selected {
+  border-color: var(--accent, #2ea89b);
+}
+.history-account-results small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.history-balance-caption {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.history-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.history-account-search .history-pagination {
+  padding: 0;
+  justify-content: flex-start;
+}
+.history-record-toolbar {
+  align-items: flex-start;
+}
+.history-record-toolbar .trader-tabs {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.history-filters {
+  padding: 0 20px 18px;
+}
+.history-filters .field {
+  margin: 0;
+  font-size: 12px;
+}
+.history-filters .field:first-child {
+  flex: 1;
+  min-width: 190px;
+}
+.history-filters .field select {
+  min-width: 145px;
+}
+.history-export-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 0;
+}
+.history-result {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 380px;
+  max-height: 250px;
+  overflow: auto;
+  font-size: 11px;
+}
+.session-change-banner .mono,
+.rollover-progress .mono {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 650px) {
+  .history-session-panel,
+  .history-account-panel {
+    padding: 16px;
+  }
+  .history-session-controls {
+    align-items: stretch;
+  }
+  .history-session-controls .field,
+  .history-session-controls > .button {
+    min-width: 0;
+    width: 100%;
+  }
+  .history-pagination {
+    flex-wrap: wrap;
+  }
+  .history-pagination span {
+    order: -1;
+    width: 100%;
+    text-align: center;
+  }
+  .history-record-toolbar {
+    flex-direction: column;
+    gap: 14px;
+  }
+  .history-filters {
+    padding: 0 16px 16px;
+  }
+  .history-filters .field {
+    flex: 1;
+  }
+}
+
+.history-embedded {
+  --trader-text: #e8eef4;
+  --trader-muted: #98a8b8;
+  --trader-line: #27333f;
+  --trader-panel: #111923;
+  --trader-green: #57d5bc;
+  --trader-red: #f18b83;
+}
+
+.history-record-toolbar .trader-tabs button {
+  padding: 7px 4px;
+  border-bottom: 2px solid transparent;
+}
+.history-record-toolbar .trader-tabs button.active {
+  border-color: #57d5bc;
+}

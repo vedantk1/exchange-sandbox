@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
-import type { AccountView } from '@sandbox/contracts';
-import type { CommandOutcome } from '../lib/api';
+import type { AccountSearchView, AccountView } from '@sandbox/contracts';
+import { api, type CommandOutcome } from '../lib/api';
 import { AccountInspector, Empty, Status } from './AccountInspector';
 import { ActionDialog, SecretDialog } from './ActionDialog';
+import { AccountSearch } from '../history/AccountSearch';
+import { SessionHistory } from '../history/SessionHistory';
 import { SimulatorCard } from './SimulatorCard';
 import { date, label } from './format';
 import type { AdminAction, AdminWorkspaceProps } from './types';
 import './admin.css';
 
-type Tab = 'overview' | 'participants' | 'invitations' | 'audit';
+type Tab = 'overview' | 'participants' | 'invitations' | 'audit' | 'history';
 
 export function AdminWorkspace({
   workspace,
@@ -16,10 +18,13 @@ export function AdminWorkspace({
   busy,
   runCommand,
   readAccount,
+  readOrder,
   refresh,
 }: AdminWorkspaceProps) {
   const [tab, setTab] = useState<Tab>('overview');
-  const [query, setQuery] = useState('');
+  const [selectedParticipant, setSelectedParticipant] = useState<
+    NonNullable<AdminWorkspaceProps['workspace']['admin']>['traders'][number] | null
+  >(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [account, setAccount] = useState<AccountView | null>(null);
   const [accountLoading, setAccountLoading] = useState(false);
@@ -41,9 +46,20 @@ export function AdminWorkspace({
     if (!selectedId) return;
     setAccountLoading(true);
     setAccountError(null);
-    void readAccount(selectedId)
-      .then((value) => {
-        if (current) setAccount(value);
+    void Promise.all([
+      readAccount(selectedId),
+      api<AccountSearchView>(
+        `/api/admin/accounts/search?search=${encodeURIComponent(selectedId)}&limit=1`,
+        undefined,
+        undefined,
+        workspace.user.accountId,
+      ),
+    ])
+      .then(([value, match]) => {
+        if (current) {
+          setAccount(value);
+          setSelectedParticipant(match.items.find((item) => item.accountId === selectedId) ?? null);
+        }
       })
       .catch(() => {
         if (current)
@@ -62,7 +78,9 @@ export function AdminWorkspace({
   if (!admin) return null;
   const { overview, traders, invitations, audit } = admin;
   const demoMarket = overview.demoMarket;
-  const selected = traders.find((trader) => trader.accountId === selectedId);
+  const selected =
+    traders.find((trader) => trader.accountId === selectedId) ??
+    (selectedParticipant?.accountId === selectedId ? selectedParticipant : undefined);
   const systemName =
     selectedId && selectedId === overview.feeAccountId
       ? 'System fee account'
@@ -98,10 +116,6 @@ export function AdminWorkspace({
   const locked = busy || !connected;
   const paused = overview.marketState === 'PAUSED';
   const faulted = Boolean(overview.fault);
-  const filtered = traders.filter(
-    (trader) =>
-      trader.handle.includes(query.toLowerCase()) || trader.accountId.includes(query.toLowerCase()),
-  );
   const activeInvitations = invitations.filter(
     (invitation) => invitation.state === 'PENDING',
   ).length;
@@ -221,6 +235,7 @@ export function AdminWorkspace({
             { id: 'participants', label: 'Participants' },
             { id: 'invitations', label: 'Invitations' },
             { id: 'audit', label: 'Audit history' },
+            { id: 'history', label: 'Sessions & history' },
           ] as const
         ).map((item) => (
           <button
@@ -336,6 +351,30 @@ export function AdminWorkspace({
                 </button>
                 <button
                   className="button ghost"
+                  disabled={locked || !paused || faulted || overview.counts.pending !== '0'}
+                  onClick={() =>
+                    setAction({
+                      title: 'Start a new session',
+                      description:
+                        'Close the current session, preserve its final records, and initialize one new session. Review the affected accounts and confirm the current session identity before proceeding.',
+                      path: '/api/admin/sessions/rollover',
+                      danger: true,
+                      rollover: {
+                        sessionId: workspace.sessionId,
+                        participants: overview.counts.traders,
+                        active: String(
+                          BigInt(overview.counts.traders) - BigInt(overview.counts.suspended),
+                        ),
+                        openOrders: overview.counts.open_orders,
+                        simulatorAccounts: demoMarket ? 2 : 0,
+                      },
+                    })
+                  }
+                >
+                  Start a new session
+                </button>
+                <button
+                  className="button ghost"
                   onClick={() => void refresh().catch(() => undefined)}
                 >
                   Refresh workspace
@@ -435,57 +474,15 @@ export function AdminWorkspace({
                 <h2>Participants</h2>
               </div>
             </div>
-            <label className="admin-search">
-              <span className="admin-sr-only">Find participant by handle or account ID</span>
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Find handle or account ID"
-              />
-            </label>
-            <div className="admin-trader-list">
-              {filtered.length ? (
-                filtered.map((trader) => (
-                  <button
-                    className={`admin-trader ${selectedId === trader.accountId ? 'selected' : ''}`}
-                    key={trader.accountId}
-                    onClick={() => inspect(trader.accountId)}
-                    aria-pressed={selectedId === trader.accountId}
-                  >
-                    <span className="admin-avatar" aria-hidden="true">
-                      {trader.handle.slice(0, 2).toUpperCase()}
-                    </span>
-                    <span>
-                      <strong>@{trader.handle}</strong>
-                      <small>
-                        {trader.pendingCancellation ? 'Cancellation pending' : label(trader.status)}
-                      </small>
-                    </span>
-                    <span className="admin-chevron" aria-hidden="true">
-                      ›
-                    </span>
-                  </button>
-                ))
-              ) : (
-                <Empty
-                  title={query ? 'No matching participant' : 'No participants yet'}
-                  description={
-                    query
-                      ? 'Search applies to the first 200 participants.'
-                      : 'Create an invitation to let someone join the sandbox.'
-                  }
-                />
-              )}
-            </div>
-            {filtered.length === 0 &&
-              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
-                query.toLowerCase(),
-              ) && (
-                <button className="button ghost" onClick={() => inspect(query.toLowerCase())}>
-                  Inspect this account ID
-                </button>
-              )}
-            <p className="admin-history-note">First 200 participants by handle.</p>
+            <AccountSearch
+              actorId={workspace.user.accountId}
+              selectedId={selectedId}
+              refreshKey={`${workspace.sessionId}:${accountRead}`}
+              onSelect={(participant) => {
+                setSelectedParticipant(participant);
+                inspect(participant.accountId);
+              }}
+            />
           </section>
           <AccountInspector
             key={selectedId}
@@ -499,9 +496,19 @@ export function AdminWorkspace({
             canGrant={paused && !faulted}
             fault={faulted}
             onAction={setAction}
+            onHistory={() => setTab('history')}
             retry={() => setAccountRead((value) => value + 1)}
           />
         </div>
+      )}
+      {tab === 'history' && (
+        <SessionHistory
+          key={selectedId ?? 'audit'}
+          workspace={workspace}
+          readOrder={readOrder}
+          readAccount={readAccount}
+          {...(selectedId ? { initialAccountId: selectedId } : {})}
+        />
       )}
       {tab === 'invitations' && (
         <section className="admin-card">
@@ -685,7 +692,18 @@ export function AdminWorkspace({
               description="Invitations, access changes, market controls, grants, and reconciliation checks appear here."
             />
           )}
-          <p className="admin-history-note">Most recent 100 administrator actions.</p>
+          <p className="admin-history-note">
+            Most recent 100 administrator actions.{' '}
+            <button
+              className="admin-link"
+              onClick={() => {
+                setSelectedId(null);
+                setTab('history');
+              }}
+            >
+              Browse complete administrator history
+            </button>
+          </p>
         </section>
       )}
       <footer className="admin-footer">
@@ -702,12 +720,18 @@ export function AdminWorkspace({
           busy={busy}
           connected={connected}
           unavailableReason={
-            action.grant && (!paused || faulted || !grantBalances)
-              ? 'Grant confirmation requires a current eligible account view and a paused, healthy market.'
-              : action.path === '/api/admin/simulator/start' &&
-                  (faulted || demoMarket?.status === 'STOPPING')
-                ? 'Starting requires healthy accounting and completion of pending simulator cancellations.'
-                : null
+            action.rollover &&
+            (!paused ||
+              faulted ||
+              overview.counts.pending !== '0' ||
+              action.rollover.sessionId !== workspace.sessionId)
+              ? 'Starting a new session requires the reviewed current session, a paused market, healthy accounting, and no pending cancellations.'
+              : action.grant && (!paused || faulted || !grantBalances)
+                ? 'Grant confirmation requires a current eligible account view and a paused, healthy market.'
+                : action.path === '/api/admin/simulator/start' &&
+                    (faulted || demoMarket?.status === 'STOPPING')
+                  ? 'Starting requires healthy accounting and completion of pending simulator cancellations.'
+                  : null
           }
           onClose={() => setAction(null)}
           onConfirm={confirm}

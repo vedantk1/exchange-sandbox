@@ -12,6 +12,7 @@ export function OrderDetailDialog({
   readOrder,
   onCancel,
   disabled,
+  readOnly = false,
 }: {
   id: string | null;
   cursor: string;
@@ -19,6 +20,7 @@ export function OrderDetailDialog({
   readOrder: (id: string) => Promise<OrderDetailResponse>;
   onCancel: (orders: WorkspaceOrderView[]) => void;
   disabled: boolean;
+  readOnly?: boolean;
 }) {
   const [detail, setDetail] = useState<OrderDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +80,10 @@ export function OrderDetailDialog({
           </div>
           <p className="trader-full-id mono">{order.id}</p>
           <dl className="trader-review-list">
+            <div>
+              <dt>Trading session</dt>
+              <dd className="mono">{detail?.sessionId}</dd>
+            </div>
             <div>
               <dt>Order type</dt>
               <dd>
@@ -182,7 +188,7 @@ export function OrderDetailDialog({
             <button className="button ghost" type="button" onClick={close}>
               Close
             </button>
-            {['OPEN', 'PARTIALLY_FILLED'].includes(order.status) && (
+            {!readOnly && ['OPEN', 'PARTIALLY_FILLED'].includes(order.status) && (
               <button
                 className="button danger"
                 disabled={disabled || loading}

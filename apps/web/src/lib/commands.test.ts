@@ -153,6 +153,50 @@ describe('durable browser command intentions', () => {
     },
   );
 
+  it('restores a rollover after the workspace switches sessions and resolves the original identity', async () => {
+    const storage = memory();
+    const path = '/api/admin/sessions/rollover';
+    const offline = requester(() => {
+      throw new TypeError('Lost rollover response');
+    });
+    const first = new CommandRunner(actorId, storage, offline.request, vi.fn());
+    expect(
+      await first.submit(
+        path,
+        { reason: 'Start another demonstration' },
+        'Start a new session',
+        sessionId,
+      ),
+    ).toBeNull();
+    const original = pending(storage);
+    const newSessionId = randomUUID();
+    const online = requester((_path, body) =>
+      body
+        ? {
+            ...accepted(body),
+            data: {
+              previousSessionId: sessionId,
+              newSessionId,
+              canceledOrderCount: 1,
+              allocatedAccountCount: 3,
+            },
+          }
+        : null,
+    );
+    const restored = new CommandRunner(actorId, storage, online.request, vi.fn());
+    expect(restored.pending?.body.sessionId).toBe(sessionId);
+    expect(
+      await restored.submit(path, { reason: 'Duplicate' }, 'New rollover', newSessionId),
+    ).toBeNull();
+    expect(await restored.retry()).toMatchObject({
+      sessionId,
+      data: { previousSessionId: sessionId, newSessionId },
+    });
+    expect(online.calls).toEqual([{ path, body: original.body }]);
+    expect(storage.writes).toHaveLength(1);
+    expect(restored.pending).toBeNull();
+  });
+
   it('retries the confirmed market preview after reload without requesting or replacing its guard', async () => {
     const storage = memory();
     const previewId = randomUUID();

@@ -25,6 +25,7 @@ export function ActionDialog({
   const [asset, setAsset] = useState<'BTC-SIM' | 'USD-SIM'>('USD-SIM');
   const [grantAmount, setGrantAmount] = useState('');
   const [reviewing, setReviewing] = useState(false);
+  const [confirmedSession, setConfirmedSession] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const validReason = reason.trim().length > 0 && !/[\u0000-\u001f\u007f]/.test(reason);
   const validAmount = !action.grant || validGrant(grantAmount, asset);
@@ -34,10 +35,11 @@ export function ActionDialog({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!validReason || !validAmount || locked || !connected || unavailableReason) return;
-    if (action.grant && !reviewing) {
+    if ((action.grant || action.rollover) && !reviewing) {
       setReviewing(true);
       return;
     }
+    if (action.rollover && confirmedSession.trim() !== action.rollover.sessionId) return;
     setSubmitting(true);
     try {
       await onConfirm({
@@ -118,6 +120,60 @@ export function ActionDialog({
             </span>
           </label>
         )}
+        {action.rollover && reviewing && (
+          <div className="admin-review" aria-label="Session rollover review">
+            <dl>
+              <div>
+                <dt>Session to archive</dt>
+                <dd className="admin-id">{action.rollover.sessionId}</dd>
+              </div>
+              <div>
+                <dt>Participants moving to the new session</dt>
+                <dd>{action.rollover.participants}</dd>
+              </div>
+              <div>
+                <dt>Active traders to allocate once</dt>
+                <dd>{action.rollover.active}</dd>
+              </div>
+              <div>
+                <dt>Simulator accounts to allocate once</dt>
+                <dd>{action.rollover.simulatorAccounts}</dd>
+              </div>
+              <div>
+                <dt>Remaining orders to cancel</dt>
+                <dd>{action.rollover.openOrders}</dd>
+              </div>
+              <div>
+                <dt>Reason</dt>
+                <dd>{reason.trim()}</dd>
+              </div>
+            </dl>
+            <p>
+              Each active trader and existing simulator account receives 1 BTC-SIM and 100,000
+              USD-SIM once in the new session. Suspended traders remain suspended and receive funds
+              when first activated. The server checks final eligibility at the transition boundary.
+            </p>
+            <p>
+              The simulator stops. Remaining reservations are released. Orders, fills, fees, grants,
+              final balances, and operator history are preserved. The new market starts paused.
+            </p>
+            <label>
+              Confirm current session ID
+              <input
+                value={confirmedSession}
+                onChange={(event) => setConfirmedSession(event.target.value)}
+                placeholder={action.rollover.sessionId}
+                maxLength={36}
+                required
+                autoComplete="off"
+                disabled={locked}
+              />
+              <span className="admin-field-help">
+                Enter the full session ID shown above to confirm which session will close.
+              </span>
+            </label>
+          </div>
+        )}
         {action.grant && reviewing && (
           <div className="admin-review" aria-label="Grant review">
             <dl>
@@ -189,15 +245,26 @@ export function ActionDialog({
           <button
             className={`button ${action.danger ? 'danger' : 'primary'}`}
             disabled={
-              !validReason || !validAmount || locked || !connected || Boolean(unavailableReason)
+              !validReason ||
+              !validAmount ||
+              locked ||
+              !connected ||
+              Boolean(unavailableReason) ||
+              (Boolean(action.rollover) &&
+                reviewing &&
+                confirmedSession.trim() !== action.rollover?.sessionId)
             }
             type="submit"
           >
             {submitting
               ? 'Confirming…'
-              : action.grant && !reviewing
-                ? 'Review grant'
-                : `Confirm ${action.grant ? 'grant' : 'action'}`}
+              : (action.grant || action.rollover) && !reviewing
+                ? action.rollover
+                  ? 'Review session rollover'
+                  : 'Review grant'
+                : action.rollover
+                  ? 'Confirm new session'
+                  : `Confirm ${action.grant ? 'grant' : 'action'}`}
           </button>
         </div>
       </form>
