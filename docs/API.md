@@ -1,4 +1,4 @@
-# Sandbox API
+# Spot Exchange Simulator API
 
 The API is the authenticated boundary around the PostgreSQL exchange core. It uses ordinary HTTP requests, opaque cookie sessions, and exact decimal strings. All assets and balances are simulated. The trader and administrator browser workspaces use committed snapshots and authenticated live invalidations. An administrator-managed simulator submits ordinary orders internally, with private inventory diagnostics and audited start/stop/funding controls. Protected market orders use server-bound previews and the same command recovery path. Session rollover, retained history, paginated inspection, and coherent CSV exports are available.
 

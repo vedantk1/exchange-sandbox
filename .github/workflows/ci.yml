@@ -1,4 +1,4 @@
-name: Verify exchange sandbox
+name: Verify Spot Exchange Simulator
 
 on:
   push:
@@ -45,13 +45,13 @@ jobs:
       - run: pnpm test:browser:external
       - name: Build the self-host images
         run: |
-          docker build --target api -t exchange-sandbox-api:ci .
-          docker build --target web -t exchange-sandbox-web:ci .
-          docker build --target operations -t exchange-sandbox-operations:ci .
+          docker build --target api -t spot-exchange-simulator-api:ci .
+          docker build --target web -t spot-exchange-simulator-web:ci .
+          docker build --target operations -t spot-exchange-simulator-operations:ci .
       - name: Verify a fresh database restore with PostgreSQL 18 tools
         run: |
           mkdir -p .local/operations
-          docker run --rm --network host --user "$(id -u):$(id -g)" -e DATABASE_URL="$TEST_DATABASE_URL" --mount type=bind,source="$PWD/.local/operations",target=/app/.local/operations exchange-sandbox-operations:ci
+          docker run --rm --network host --user "$(id -u):$(id -g)" -e DATABASE_URL="$TEST_DATABASE_URL" --mount type=bind,source="$PWD/.local/operations",target=/app/.local/operations spot-exchange-simulator-operations:ci
       - name: Upload the verified restore report
         uses: actions/upload-artifact@v4
         if: success()

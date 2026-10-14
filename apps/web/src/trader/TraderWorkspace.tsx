@@ -110,7 +110,7 @@ export function TraderWorkspace({
       <div className="trader-page-heading">
         <div>
           <div className="trader-eyebrow">
-            EXCHANGE SANDBOX <span>VIRTUAL ASSETS ONLY</span>
+            SPOT EXCHANGE SIMULATOR <span>VIRTUAL ASSETS ONLY</span>
           </div>
           <h1>{headings[section]}</h1>
           <p>{descriptions[section]}</p>

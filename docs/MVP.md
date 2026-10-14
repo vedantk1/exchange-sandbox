@@ -1,6 +1,6 @@
-# Exchange sandbox MVP
+# Spot Exchange Simulator MVP
 
-Status: MVP product scope accepted. The defaults below define the agreed exchange sandbox, with real funds excluded. They are requirements, not claims about implemented features. The accepted technical design is recorded separately in [System architecture and stack](ARCHITECTURE.md); [development and validation](DEVELOPMENT.md) tracks the implemented milestone.
+Status: MVP product scope accepted. The defaults below define Spot Exchange Simulator, with real funds excluded. They are requirements, not claims about implemented features. The accepted technical design is recorded separately in [System architecture and stack](ARCHITECTURE.md); [development and validation](DEVELOPMENT.md) tracks the implemented milestone.
 
 The accepted automation design is the two-account demo market simulator below. It replaces the earlier single quoting-bot proposal. Its administrator controls, inventory visibility, and audited funding are implemented. Protected market orders, session rollover, retained archives, complete history pagination/search, and consistent CSV exports implement the flows below. Release evidence is tracked in [development](DEVELOPMENT.md) and [release verification](RELEASE.md).
 

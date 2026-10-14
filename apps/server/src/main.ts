@@ -71,7 +71,7 @@ try {
   }
   await app.listen({ port, host });
   simulator.start();
-  console.log(`Exchange sandbox API ready on port ${port}. Application origin: ${origin}.`);
+  console.log(`Spot Exchange Simulator API ready on port ${port}. Application origin: ${origin}.`);
   console.log('Virtual assets only. Run administrator setup before inviting traders.');
   console.log('Simulator intent is controlled by the administrator workspace.');
 } catch (error) {

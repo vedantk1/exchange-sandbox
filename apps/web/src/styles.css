@@ -224,6 +224,7 @@ textarea {
 }
 .brand {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 10px;
   font-weight: 650;
@@ -233,6 +234,7 @@ textarea {
 }
 .brand-mark {
   display: grid;
+  flex-shrink: 0;
   place-items: center;
   color: #071914;
   background: #57d5bc;
@@ -240,10 +242,17 @@ textarea {
   height: 34px;
   border-radius: 9px;
 }
+.brand-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.15;
+}
 .brand-sub {
-  font-weight: 400;
+  font-size: 11px;
+  font-weight: 500;
   color: #8d9dad;
-  margin-left: 4px;
+  letter-spacing: 0.3px;
 }
 .app-header {
   display: flex;
@@ -671,9 +680,6 @@ textarea {
     gap: 24px;
     padding-inline: 22px;
   }
-  .brand-sub {
-    display: none;
-  }
   .main-nav {
     gap: 18px;
   }
@@ -740,9 +746,6 @@ textarea {
     padding: 26px 24px;
     border-right: 0;
     border-bottom: 1px solid #2c3a48;
-  }
-  .auth-story .brand-sub {
-    display: inline;
   }
   .auth-story-content,
   .auth-footnote {

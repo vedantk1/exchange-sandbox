@@ -215,7 +215,7 @@ export function AdminWorkspace({
           <h1>
             Control room<span className="admin-role-label">Administrator</span>
           </h1>
-          <p>Run the sandbox with a clear record of every decision.</p>
+          <p>Run the simulator with a clear record of every decision.</p>
         </div>
         <div className="admin-market-control">
           <Status value={faulted ? 'FAULT' : overview.marketState} />

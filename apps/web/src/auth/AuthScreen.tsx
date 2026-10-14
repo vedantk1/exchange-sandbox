@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, ArrowUpRight, Layers3, ShieldCheck, KeyRound } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, ShieldCheck, KeyRound } from 'lucide-react';
+import { Brand, PRODUCT_NAME } from '../components/Brand.js';
 import { api, errorMessage, type User } from '../lib/api.js';
 
 function readToken(): string {
@@ -92,13 +93,8 @@ export function AuthScreen({
   return (
     <main className="auth-page">
       <section className="auth-story">
-        <Link className="brand" to="/login">
-          <span className="brand-mark">
-            <Layers3 size={22} />
-          </span>
-          <span>
-            exchange<span className="brand-sub">sandbox</span>
-          </span>
+        <Link className="brand" to="/login" aria-label={PRODUCT_NAME}>
+          <Brand />
         </Link>
         <div className="auth-story-content">
           <span className="eyebrow">A SMALL EXCHANGE. EVERY DETAIL VISIBLE.</span>

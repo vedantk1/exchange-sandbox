@@ -4,7 +4,7 @@ Status: accepted architecture and TypeScript stack, based on the accepted [MVP](
 
 Use a modular TypeScript application, a React interface, and PostgreSQL as the authoritative store. The browser uses ordinary HTTP commands and queries and server-sent events for live updates. The implemented core uses exact integer arithmetic and one serialized database transaction for each exchange command. The initial deployment has one application process and one database.
 
-This favors inspectable correctness, a small installation, and approachable contributions. It accepts a throughput ceiling and a single application failure domain. This is a virtual exchange sandbox with one market; it does not need a distributed trading platform to meet its product contract.
+This favors inspectable correctness, a small installation, and approachable contributions. It accepts a throughput ceiling and a single application failure domain. Spot Exchange Simulator has one virtual market; it does not need a distributed trading platform to meet its product contract.
 
 ## Implemented command and read paths
 

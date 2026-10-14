@@ -20,7 +20,7 @@ services:
     build:
       context: .
       target: api
-    image: exchange-sandbox-api:local
+    image: spot-exchange-simulator-api:local
     command: [tsx, apps/server/src/deploy/initialize.ts]
     environment:
       DATABASE_URL_FILE: /run/secrets/owner_database_url
@@ -36,7 +36,7 @@ services:
       - /tmp
 
   api:
-    image: exchange-sandbox-api:local
+    image: spot-exchange-simulator-api:local
     environment:
       DATABASE_URL_FILE: /run/secrets/runtime_database_url
       API_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN to the exact HTTPS origin}
@@ -72,7 +72,7 @@ services:
     build:
       context: .
       target: web
-    image: exchange-sandbox-web:local
+    image: spot-exchange-simulator-web:local
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST:?Set PUBLIC_HOST to the hostname in PUBLIC_ORIGIN}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN to the exact HTTPS origin}
@@ -88,7 +88,7 @@ services:
     restart: unless-stopped
 
   operator:
-    image: exchange-sandbox-api:local
+    image: spot-exchange-simulator-api:local
     profiles: [tools]
     entrypoint: [tsx, apps/server/src/operator-cli.ts]
     environment:
@@ -108,7 +108,7 @@ services:
     build:
       context: .
       target: operations
-    image: exchange-sandbox-operations:local
+    image: spot-exchange-simulator-operations:local
     profiles: [tools]
     environment:
       DATABASE_URL_FILE: /run/secrets/owner_database_url

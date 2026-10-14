@@ -83,7 +83,7 @@ export async function buildApi(options: ApiOptions) {
   await app.register(swagger, {
     openapi: {
       info: {
-        title: 'Exchange sandbox API',
+        title: 'Spot Exchange Simulator API',
         version: '0.2.0',
         description:
           'Virtual BTC-SIM / USD-SIM. Cookie authentication with exact-origin and CSRF checks.',

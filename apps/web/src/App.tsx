@@ -17,7 +17,6 @@ import {
   CircleHelp,
   History,
   KeyRound,
-  Layers3,
   LayoutDashboard,
   ListOrdered,
   LogOut,
@@ -27,6 +26,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { AuthScreen } from './auth/AuthScreen.js';
+import { Brand, PRODUCT_NAME } from './components/Brand.js';
 import { Dialog, LoadingView } from './components/ui.js';
 import {
   api,
@@ -287,13 +287,12 @@ function AuthenticatedWorkspace({
         Skip to workspace
       </a>
       <header className="app-header">
-        <NavLink to={user.role === 'ADMIN' ? '/admin' : '/trade'} className="brand">
-          <span className="brand-mark">
-            <Layers3 size={22} />
-          </span>
-          <span>
-            exchange<span className="brand-sub">sandbox</span>
-          </span>
+        <NavLink
+          to={user.role === 'ADMIN' ? '/admin' : '/trade'}
+          className="brand"
+          aria-label={PRODUCT_NAME}
+        >
+          <Brand />
         </NavLink>
         <nav className="main-nav" aria-label="Workspace navigation">
           {user.role === 'ADMIN' ? (

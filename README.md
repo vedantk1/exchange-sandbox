@@ -1,6 +1,6 @@
-# Exchange sandbox
+# Spot Exchange Simulator
 
-A self-hostable spot-exchange sandbox for developers and technical learners. Trade virtual BTC-SIM / USD-SIM and inspect how orders, fills, fees, and balances change. Real money, custody, and external exchange connections are outside scope.
+A self-hostable simulated spot exchange for developers and technical learners. Trade virtual BTC-SIM / USD-SIM and inspect how orders, fills, fees, and balances change. Real money, custody, and external exchange connections are outside scope.
 
 The prototype includes a browser trading workspace, an administrator control room, invitation-only authentication, and the transactional exchange core. Live updates keep order, balance, and market views synchronized with committed PostgreSQL state.
 

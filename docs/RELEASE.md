@@ -61,6 +61,8 @@ Run operator setup in an interactive terminal and choose your own administrator 
 
 To upgrade, back up first, stop the API/web, rebuild, run `migrate`, then restart. Run `operator reset` only for owner-authorized administrator credential recovery while the API is stopped. Ordinary `docker compose down` retains volumes; removing them is a separate destructive action. Back up database contents and the private connection configuration through your own protected backup process.
 
+The product's image tags use `spot-exchange-simulator`. Existing installations should retain their checkout directory or explicit Compose project name when adopting the renamed repository, so Compose continues to use the same persistent volumes. Existing credentials, database roles, and financial records remain compatible.
+
 The deployment trusts exactly one private proxy hop for client authentication throttling. Caddy sanitizes forwarded client headers; keep the backend port private and retain the default zero-hop setting when running a direct development API. The runtime database role cannot create/alter/drop schema objects, rewrite migration metadata, or assume an owner role. Provisioning rejects a pre-existing role that owns objects rather than silently claiming it is restricted.
 
 ## Operational evidence
@@ -117,7 +119,7 @@ Use the scenario definitions in [MVP release acceptance](MVP.md#release-acceptan
 | A15 fault and rollover boundaries     | Gated enrollment/funding/reinstatement tests, faulted-transition repair/retry tests, access-revocation checks                          |
 | A16 coherent live export              | Concurrent-commit export test with one Repeatable Read snapshot, exact balance/fee totals, role scopes, and recorded manifest boundary |
 
-The archive browser scenario also verifies a 390 × 844 viewport without document overflow, a history workspace that fills the available width, readable session/export/pagination controls, and Escape restoring focus after closing read-only order details. The isolated HTTPS/proxy smoke report supplements the development-browser scenarios. Local verification is recorded in [development evidence](DEVELOPMENT.md#evidence-and-limitations). The public repository's **Actions → Verify exchange sandbox** view records remote Linux runs against their exact commits, including image builds and a downloadable sanitized restore report. Check that commit's result when evaluating a release.
+The archive browser scenario also verifies a 390 × 844 viewport without document overflow, a history workspace that fills the available width, readable session/export/pagination controls, and Escape restoring focus after closing read-only order details. The isolated HTTPS/proxy smoke report supplements the development-browser scenarios. Local verification is recorded in [development evidence](DEVELOPMENT.md#evidence-and-limitations). The public repository's **Actions → Verify Spot Exchange Simulator** view records remote Linux runs against their exact commits, including image builds and a downloadable sanitized restore report. Check that commit's result when evaluating a release.
 
 ## Contributing
 
