@@ -173,24 +173,33 @@ it('protects existing007 orders without rewriting evidence or changing recovery 
     }
     const originalEvidence = await evidence();
     const originalVersions = await context.sql.query<{ row: string }>(
-      'SELECT row_to_json(t)::text AS row FROM schema_migrations t ORDER BY name',
+      'SELECT row_to_json(t)::text AS row FROM (SELECT name, applied_at FROM schema_migrations) t ORDER BY name',
     );
     await expect(Exchange.open(context.url, { migrations: 'verify' })).rejects.toMatchObject({
-      code: 'MIGRATION_REQUIRED',
+      code: 'MIGRATION_ADOPTION_REQUIRED',
     });
     expect(await evidence()).toEqual(originalEvidence);
-    exchange = await Exchange.open(context.url);
+    const owner = database.createDatabase(context.url);
+    try {
+      await database.withDatabaseBudget(owner, 'maintenance', () =>
+        database.migrate(owner, { legacyBaseline: '007_command_timestamps' }),
+      );
+    } finally {
+      await owner.destroy();
+    }
+    exchange = await Exchange.open(context.url, { migrations: 'verify' });
     expect(
       (await context.sql.query('SELECT name FROM schema_migrations ORDER BY name')).rows,
     ).toEqual([
       ...legacyMigrations.map(([name]) => ({ name })),
       { name: '008_order_integrity' },
       { name: '009_large_session_reads' },
+      { name: '010_migration_checksums' },
     ]);
     expect(
       (
         await context.sql.query<{ row: string }>(
-          "SELECT row_to_json(t)::text AS row FROM schema_migrations t WHERE name <= '007_command_timestamps' ORDER BY name",
+          "SELECT row_to_json(t)::text AS row FROM (SELECT name, applied_at FROM schema_migrations WHERE name <= '007_command_timestamps') t ORDER BY name",
         )
       ).rows,
     ).toEqual(originalVersions.rows);

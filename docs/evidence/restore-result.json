@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-10-14T16:39:50.124Z",
+  "generatedAt": "2026-10-14T17:50:50.165Z",
   "kind": "fresh-database-pg-dump-restore",
   "postgres": "18.4 (Debian 18.4-1.pgdg13+1)",
   "format": "custom",
-  "dumpMs": 81.08,
-  "restoreMs": 121.21,
+  "dumpMs": 72.37,
+  "restoreMs": 112.06,
   "comparedTables": 22,
   "sourceRows": {
     "exchange_sessions": 2,
@@ -28,7 +28,7 @@
     "demo_market": 2,
     "market_previews": 1,
     "market_preview_uses": 1,
-    "schema_migrations": 9
+    "schema_migrations": 10
   },
   "checks": {
     "exactTableEvidence": true,
@@ -38,6 +38,6 @@
     "protectedMarketPreviewPreserved": true,
     "originalRolloverReceiptReplay": true
   },
-  "archiveSha256": "6be36f324d06e0c857569f9e6b3e72d6445220459f9221ded303903d69dc9105",
+  "archiveSha256": "f500d733be16d3b94dc05d60f8f6bdf350f4e61a186966004006e161d9328e84",
   "scope": "Generated fixture and fresh databases only; this is a logical restore drill, not disaster recovery for an existing deployment."
 }

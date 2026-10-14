@@ -18,8 +18,8 @@ type WorkerMessage =
 /** Only the generated benchmark schema is passed to a separate API process. */
 export async function startBenchmarkServer(databaseUrl: string, requestedPort?: number) {
   const child = fork('apps/server/src/operations/large-session-worker.ts', {
-    // Inherit the actual TypeScript loader used by the runner. The operations
-    // image installs the tsx CLI globally instead of a workspace dev dependency.
+    // Inherit the parent's actual TypeScript loader. The operations image uses
+    // the server's lockfile-managed production dependency from the /app checkout.
     env: {
       ...process.env,
       NODE_ENV: 'development',

@@ -162,6 +162,9 @@ export interface Database {
   schema_migrations: {
     name: string;
     applied_at: Timestamp;
+    checksum: string;
+    checksum_origin: 'APPLIED' | 'LEGACY_SCHEMA_VERIFIED';
+    verified_at: Timestamp;
   };
   users: {
     account_id: string;

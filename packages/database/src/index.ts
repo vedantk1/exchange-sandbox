@@ -7,4 +7,5 @@ export {
   type DatabaseBudgets,
 } from './budgets.js';
 export { migrate, verifyMigrations } from './migrate.js';
+export type { MigrationOptions } from './migrate.js';
 export type { Asset, Bucket, Database, ExactInteger } from './types.js';

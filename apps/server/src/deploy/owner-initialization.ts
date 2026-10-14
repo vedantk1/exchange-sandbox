@@ -2,14 +2,20 @@ import pg from 'pg';
 import {
   createDatabase,
   migrate,
+  verifyMigrations,
   withDatabaseBudget,
   DatabaseTimeoutError,
+  type MigrationOptions,
 } from '@sandbox/database';
 import { provisionRuntimeRole } from './runtime-role.js';
 import { Exchange } from '../exchange.js';
 
 /** Owner maintenance obeys writer ownership and finite SQL/transport budgets. */
-export async function initializeOwner(ownerUrl: string, runtimeUrl: URL): Promise<void> {
+async function initialize(
+  ownerUrl: string,
+  runtimeUrl: URL | undefined,
+  options: MigrationOptions,
+): Promise<void> {
   const owner = new pg.Client({
     connectionString: ownerUrl,
     connectionTimeoutMillis: 5_000,
@@ -57,21 +63,30 @@ export async function initializeOwner(ownerUrl: string, runtimeUrl: URL): Promis
       'SELECT pg_try_advisory_lock($1) AS acquired',
       [7_314_921],
     );
-    if (!locked.rows[0]?.acquired) throw new Error('Stop the API before migrating.');
-    await withDatabaseBudget(database, 'maintenance', () => migrate(database));
+    if (!locked.rows[0]?.acquired)
+      throw Object.assign(new Error('Stop the API before migrating.'), {
+        code: 'OWNER_WRITER_BUSY',
+      });
+    await withDatabaseBudget(database, 'maintenance', async () => {
+      await migrate(database, options);
+      await verifyMigrations(database);
+    });
     await owner.query("SELECT set_config('transaction_timeout', '120000ms', false)");
-    await provisionRuntimeRole(
-      owner,
-      decodeURIComponent(runtimeUrl.password),
-      decodeURIComponent(runtimeUrl.username),
-    );
+    if (runtimeUrl)
+      await provisionRuntimeRole(
+        owner,
+        decodeURIComponent(runtimeUrl.password),
+        decodeURIComponent(runtimeUrl.username),
+      );
     await closeDatabase();
     await owner.query('SELECT pg_advisory_unlock($1)', [7_314_921]);
-    const runtime = await Exchange.open(runtimeUrl.toString(), {
-      migrations: 'verify',
-      allowFaultedStartup: true,
-    });
-    await runtime.close();
+    if (runtimeUrl) {
+      const runtime = await Exchange.open(runtimeUrl.toString(), {
+        migrations: 'verify',
+        allowFaultedStartup: true,
+      });
+      await runtime.close();
+    }
   } finally {
     try {
       await closeDatabase();
@@ -90,4 +105,18 @@ export async function initializeOwner(ownerUrl: string, runtimeUrl: URL): Promis
       clearTimeout(processDeadline);
     }
   }
+}
+
+/** Self-host owner migration and restricted-role provisioning. */
+export function initializeOwner(
+  ownerUrl: string,
+  runtimeUrl: URL,
+  options: MigrationOptions = {},
+): Promise<void> {
+  return initialize(ownerUrl, runtimeUrl, options);
+}
+
+/** Development/owner CLI: the same ownership and deadline boundary, without changing roles. */
+export function migrateOwner(ownerUrl: string, options: MigrationOptions = {}): Promise<void> {
+  return initialize(ownerUrl, undefined, options);
 }

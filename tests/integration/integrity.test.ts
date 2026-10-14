@@ -23,9 +23,11 @@ describe('database integrity boundaries', () => {
 
   it('refuses an unknown schema version instead of running against an incompatible database', async () => {
     await context.stop();
-    await context.sql.query('INSERT INTO schema_migrations (name) VALUES ($1)', [
-      '999_future_schema',
-    ]);
+    await context.sql.query(
+      `INSERT INTO schema_migrations (name, checksum, checksum_origin, verified_at)
+        VALUES ($1, repeat('0', 64), 'APPLIED', current_timestamp)`,
+      ['999_future_schema'],
+    );
     await expect(context.start()).rejects.toThrow('unsupported migration');
   });
 

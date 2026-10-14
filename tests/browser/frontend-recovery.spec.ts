@@ -91,7 +91,44 @@ test('a failed lazy module keeps the original unresolved command and reload reso
   expect(navigations).toBe(navigationsBeforeReload + 1);
 
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
-  await login(page, application.origin, 'recovery_trader');
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  // A recovered receipt can finish while the initial snapshot is still in
+  // flight. Force that ordering instead of depending on local query timing.
+  let releaseWorkspace!: () => void;
+  let releaseReceipt!: () => void;
+  const workspaceGate = new Promise<void>((resolve) => (releaseWorkspace = resolve));
+  const receiptGate = new Promise<void>((resolve) => (releaseReceipt = resolve));
+  let workspaceHeld = false;
+  let receiptHeld = false;
+  await page.route('**/api/workspace', async (route) => {
+    const response = await route.fetch();
+    workspaceHeld = true;
+    await workspaceGate;
+    await route.fulfill({ response });
+  });
+  await page.route(`**/api/receipts/${commands[0]}`, async (route) => {
+    const response = await route.fetch();
+    receiptHeld = true;
+    await receiptGate;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.goto(`${application.origin}/login`);
+    await page.getByLabel(/^Handle/).fill('recovery_trader');
+    await page.getByLabel('Password', { exact: true }).fill(TEST_PASSWORD);
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect.poll(() => workspaceHeld && receiptHeld).toBe(true);
+    releaseReceipt();
+    await expect(page.getByText('Command confirmed.', { exact: false })).toBeVisible();
+    await expect(page.getByText('Live · synced', { exact: true })).not.toBeVisible();
+    releaseWorkspace();
+    await expect(page.getByText('Live · synced', { exact: true })).toBeVisible();
+  } finally {
+    releaseReceipt();
+    releaseWorkspace();
+    await page.unroute('**/api/workspace');
+    await page.unroute(`**/api/receipts/${commands[0]}`);
+  }
   await expect
     .poll(() => page.evaluate((key) => sessionStorage.getItem(key), storageKey))
     .toBeNull();

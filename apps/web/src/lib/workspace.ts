@@ -33,37 +33,39 @@ export function useWorkspace(user: User, onUnauthorized: () => void) {
     networkMode: 'always',
   });
   const [connection, setConnection] = useState<ConnectionState>('connecting');
-  const current = useRef(query.data);
-  current.current = query.data;
-  const refreshWork = useRef<Promise<void> | null>(null);
+  const refreshWork = useRef<Promise<WorkspaceView> | null>(null);
   const dirty = useRef(false);
   const unauthorized = useRef(onUnauthorized);
   unauthorized.current = onUnauthorized;
 
-  const refresh = useCallback(async () => {
+  const refreshSnapshot = useCallback(async () => {
     dirty.current = true;
     if (refreshWork.current) return refreshWork.current;
     refreshWork.current = (async () => {
+      let value: WorkspaceView;
       do {
         dirty.current = false;
         try {
-          const value = await client.fetchQuery({
+          value = await client.fetchQuery({
             queryKey: ['workspace', user.accountId],
             queryFn: ({ signal }) => readSnapshot(signal),
             staleTime: 0,
           });
-          current.current = value;
         } catch (error) {
           if (error instanceof ApiError && error.status === 401) unauthorized.current();
           setConnection('reconnecting');
           throw error;
         }
       } while (dirty.current);
+      return value;
     })().finally(() => {
       refreshWork.current = null;
     });
     return refreshWork.current;
   }, [client, user.accountId, readSnapshot]);
+  const refresh = useCallback(async () => {
+    await refreshSnapshot();
+  }, [refreshSnapshot]);
 
   useEffect(() => {
     if (query.error instanceof ApiError && query.error.status === 401) unauthorized.current();
@@ -94,8 +96,8 @@ export function useWorkspace(user: User, onUnauthorized: () => void) {
     };
     const sync = async (version: number) => {
       try {
-        await refresh();
-        if (alive(version) && sourceSession !== current.current?.sessionId) {
+        const snapshot = await refreshSnapshot();
+        if (alive(version) && sourceSession !== snapshot.sessionId) {
           recover();
           return;
         }
@@ -109,9 +111,10 @@ export function useWorkspace(user: User, onUnauthorized: () => void) {
       const version = ++generation;
       lastMessage = performance.now();
       try {
-        await refresh();
-        if (!alive(version) || !current.current) return;
-        const { sessionId, cursor } = current.current;
+        // Use the confirmed result directly: React's query observer may render
+        // older or absent data while receipt recovery updates the interface.
+        const { sessionId, cursor } = await refreshSnapshot();
+        if (!alive(version)) return;
         sourceSession = sessionId;
         source = new EventSource(
           `/api/events?sessionId=${encodeURIComponent(sessionId)}&cursor=${encodeURIComponent(cursor)}`,
@@ -196,7 +199,7 @@ export function useWorkspace(user: User, onUnauthorized: () => void) {
       window.removeEventListener('online', online);
       document.removeEventListener('visibilitychange', visible);
     };
-  }, [user.accountId, refresh]);
+  }, [user.accountId, refreshSnapshot]);
 
   return { ...query, connection, connected: connection === 'live', refresh };
 }

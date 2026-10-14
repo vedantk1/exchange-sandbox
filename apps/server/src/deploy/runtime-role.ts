@@ -70,9 +70,22 @@ export async function provisionRuntimeRole(
     );
     if (Object.values(orderPrivileges.rows[0]!).some(Boolean))
       throw new Error('The runtime role retains unexpected order update or deletion privileges.');
-    await owner.query(
-      `REVOKE INSERT, UPDATE, DELETE ON schema_migrations FROM PUBLIC, ${roleName}`,
+    // Metadata is SELECT-only for the application. An old PUBLIC grant can
+    // otherwise restore TRUNCATE or column updates after a direct role revoke.
+    await owner.query(`REVOKE ALL ON public.schema_migrations FROM PUBLIC, ${roleName}`);
+    await owner.query(`GRANT SELECT ON public.schema_migrations TO ${roleName}`);
+    const metadataPrivileges = await owner.query<{
+      table_mutation: boolean;
+      column_mutation: boolean;
+    }>(
+      `SELECT has_table_privilege($1, 'public.schema_migrations',
+          'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN') AS table_mutation,
+        has_any_column_privilege($1, 'public.schema_migrations',
+          'INSERT, UPDATE, REFERENCES') AS column_mutation`,
+      [roleName],
     );
+    if (Object.values(metadataPrivileges.rows[0]!).some(Boolean))
+      throw new Error('The runtime role retains unexpected migration metadata privileges.');
     await owner.query(`REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM ${roleName}`);
     await owner.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${roleName}`);
     const create = await owner.query(

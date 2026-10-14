@@ -4,6 +4,8 @@ The API is the authenticated boundary around the PostgreSQL exchange core. It us
 
 The trader interface and administrator controls use the same transaction boundary as the core. Administrator routes support the application; they do not establish a separate, stable automation product.
 
+Migration adoption is an owner operation with the API stopped, never an administrator HTTP route. Runtime startup rejects missing/incompatible migrations, names-only history, checksum mismatches and malformed metadata. Follow the [upgrade procedure](RELEASE.md#adopt-a-names-only-installation); preserving original command identities remains the recovery path after an interrupted upgrade or restart.
+
 ## Authentication and request safety
 
 There is no public signup or HTTP administrator bootstrap. A local operator establishes the single administrator, then creates expiring, single-use invitations. The administrator identity has no trading account. Use a separately invited trader account to trade.

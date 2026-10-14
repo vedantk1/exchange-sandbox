@@ -1,0 +1,277 @@
+{
+  "seller": "f5086a3e-9551-49b9-bd60-9a8a3097af19",
+  "buyer": "71c0bc85-9486-4acd-a499-a20e4f598388",
+  "operator": {
+    "accountId": "e7e1d753-c1ea-4e3b-8cbc-108d4c70c1e4",
+    "handle": "fixture_operator",
+    "role": "ADMIN",
+    "sessionId": "3f1ca5e7-08e0-48f3-8983-583f115cb125"
+  },
+  "archivedSessionId": "3f1ca5e7-08e0-48f3-8983-583f115cb125",
+  "sessionId": "8709eaef-cd3e-4770-8860-38a08470abfb",
+  "commands": {
+    "archivedSell": {
+      "accountId": "f5086a3e-9551-49b9-bd60-9a8a3097af19",
+      "commandId": "c7ff567b-b362-488b-8e42-c2674f95185b",
+      "sessionId": "3f1ca5e7-08e0-48f3-8983-583f115cb125",
+      "side": "SELL",
+      "quantity": "0.3",
+      "price": "50000"
+    },
+    "archivedBuy": {
+      "accountId": "71c0bc85-9486-4acd-a499-a20e4f598388",
+      "commandId": "53716cfd-bdb8-475b-af70-7677bab8fd67",
+      "sessionId": "3f1ca5e7-08e0-48f3-8983-583f115cb125",
+      "side": "BUY",
+      "quantity": "0.1",
+      "price": "50000"
+    },
+    "rollover": {
+      "commandId": "e24adae0-6625-420f-8ec4-66620d213afc",
+      "sessionId": "3f1ca5e7-08e0-48f3-8983-583f115cb125",
+      "reason": "Synthetic historical upgrade fixture"
+    },
+    "buy": {
+      "accountId": "71c0bc85-9486-4acd-a499-a20e4f598388",
+      "commandId": "b65d7255-af74-4ff5-ac44-6b67cd1942aa",
+      "sessionId": "8709eaef-cd3e-4770-8860-38a08470abfb",
+      "side": "BUY",
+      "quantity": "0.1",
+      "price": "50000"
+    },
+    "cancel": {
+      "accountId": "71c0bc85-9486-4acd-a499-a20e4f598388",
+      "commandId": "45573c88-ed3b-4e50-a2f3-729b293486cc",
+      "sessionId": "8709eaef-cd3e-4770-8860-38a08470abfb",
+      "orderId": "a7113963-648d-4ce8-8e03-0c928017b199"
+    },
+    "market": {
+      "accountId": "71c0bc85-9486-4acd-a499-a20e4f598388",
+      "commandId": "3bf4c738-395b-4dce-9f7b-ea85869b0b1b",
+      "sessionId": "8709eaef-cd3e-4770-8860-38a08470abfb",
+      "previewId": "3c7da161-bc38-4881-a821-59f497d27de4"
+    },
+    "partialMarket": {
+      "accountId": "71c0bc85-9486-4acd-a499-a20e4f598388",
+      "commandId": "2d70ec06-bd99-4883-9095-6d14c869b953",
+      "sessionId": "8709eaef-cd3e-4770-8860-38a08470abfb",
+      "previewId": "0e965bbf-b87e-4ddb-b1d0-49944569b576"
+    }
+  },
+  "results": {
+    "archivedSell": {
+      "commandId": "c7ff567b-b362-488b-8e42-c2674f95185b",
+      "sessionId": "3f1ca5e7-08e0-48f3-8983-583f115cb125",
+      "sequence": "7",
+      "status": "ACCEPTED",
+      "order": {
+        "id": "9fbf32b9-b9f6-4a0a-8180-e90ae4707539",
+        "accountId": "f5086a3e-9551-49b9-bd60-9a8a3097af19",
+        "side": "SELL",
+        "price": "50000.00",
+        "type": "LIMIT",
+        "quantity": "0.3000",
+        "remaining": "0.3000",
+        "status": "OPEN",
+        "cancelReason": null,
+        "reserved": "0.3000",
+        "sequence": "7"
+      },
+      "fills": []
+    },
+    "archivedBuy": {
+      "commandId": "53716cfd-bdb8-475b-af70-7677bab8fd67",
+      "sessionId": "3f1ca5e7-08e0-48f3-8983-583f115cb125",
+      "sequence": "8",
+      "status": "ACCEPTED",
+      "order": {
+        "id": "f9357cfc-e04d-40f6-bd3d-38f98a258849",
+        "accountId": "71c0bc85-9486-4acd-a499-a20e4f598388",
+        "side": "BUY",
+        "price": "50000.00",
+        "type": "LIMIT",
+        "quantity": "0.1000",
+        "remaining": "0.0000",
+        "status": "FILLED",
+        "cancelReason": null,
+        "reserved": "0.000000000",
+        "sequence": "8"
+      },
+      "fills": [
+        {
+          "id": "a9de66f8-1cfd-4eaf-8a2d-f7465997d352",
+          "makerOrderId": "9fbf32b9-b9f6-4a0a-8180-e90ae4707539",
+          "takerOrderId": "f9357cfc-e04d-40f6-bd3d-38f98a258849",
+          "buyOrderId": "f9357cfc-e04d-40f6-bd3d-38f98a258849",
+          "sellOrderId": "9fbf32b9-b9f6-4a0a-8180-e90ae4707539",
+          "quantity": "0.1000",
+          "price": "50000.00",
+          "notional": "5000.000000000",
+          "buyerFee": "5.000000000",
+          "sellerFee": "5.000000000",
+          "sequence": "8",
+          "fillIndex": 0
+        }
+      ]
+    },
+    "rollover": {
+      "commandId": "e24adae0-6625-420f-8ec4-66620d213afc",
+      "sessionId": "3f1ca5e7-08e0-48f3-8983-583f115cb125",
+      "sequence": "11",
+      "status": "ACCEPTED",
+      "data": {
+        "previousSessionId": "3f1ca5e7-08e0-48f3-8983-583f115cb125",
+        "newSessionId": "8709eaef-cd3e-4770-8860-38a08470abfb",
+        "canceledOrderCount": 1,
+        "allocatedAccountCount": 2
+      }
+    },
+    "buy": {
+      "commandId": "b65d7255-af74-4ff5-ac44-6b67cd1942aa",
+      "sessionId": "8709eaef-cd3e-4770-8860-38a08470abfb",
+      "sequence": "14",
+      "status": "ACCEPTED",
+      "order": {
+        "id": "459635a5-8ec3-4591-ba41-25097aad13ae",
+        "accountId": "71c0bc85-9486-4acd-a499-a20e4f598388",
+        "side": "BUY",
+        "price": "50000.00",
+        "type": "LIMIT",
+        "quantity": "0.1000",
+        "remaining": "0.0000",
+        "status": "FILLED",
+        "cancelReason": null,
+        "reserved": "0.000000000",
+        "sequence": "14"
+      },
+      "fills": [
+        {
+          "id": "be49abca-6144-4142-9608-bbdd9319899a",
+          "makerOrderId": "5e797c1f-22d3-4b11-bddd-96a77f06c98e",
+          "takerOrderId": "459635a5-8ec3-4591-ba41-25097aad13ae",
+          "buyOrderId": "459635a5-8ec3-4591-ba41-25097aad13ae",
+          "sellOrderId": "5e797c1f-22d3-4b11-bddd-96a77f06c98e",
+          "quantity": "0.1000",
+          "price": "50000.00",
+          "notional": "5000.000000000",
+          "buyerFee": "5.000000000",
+          "sellerFee": "5.000000000",
+          "sequence": "14",
+          "fillIndex": 0
+        }
+      ]
+    },
+    "cancel": {
+      "commandId": "45573c88-ed3b-4e50-a2f3-729b293486cc",
+      "sessionId": "8709eaef-cd3e-4770-8860-38a08470abfb",
+      "sequence": "17",
+      "status": "ACCEPTED",
+      "order": {
+        "id": "a7113963-648d-4ce8-8e03-0c928017b199",
+        "accountId": "71c0bc85-9486-4acd-a499-a20e4f598388",
+        "side": "BUY",
+        "price": "40000.00",
+        "type": "LIMIT",
+        "quantity": "0.1000",
+        "remaining": "0.1000",
+        "status": "CANCELED",
+        "cancelReason": "USER_REQUEST",
+        "reserved": "0.000000000",
+        "sequence": "16"
+      },
+      "fills": []
+    },
+    "market": {
+      "commandId": "3bf4c738-395b-4dce-9f7b-ea85869b0b1b",
+      "sessionId": "8709eaef-cd3e-4770-8860-38a08470abfb",
+      "sequence": "18",
+      "status": "ACCEPTED",
+      "order": {
+        "id": "5599f776-e63e-4979-bbab-497ead3f6f29",
+        "accountId": "71c0bc85-9486-4acd-a499-a20e4f598388",
+        "side": "BUY",
+        "price": "52500.00",
+        "type": "MARKET",
+        "quantity": "0.0500",
+        "remaining": "0.0000",
+        "status": "FILLED",
+        "cancelReason": null,
+        "reserved": "0.000000000",
+        "sequence": "18"
+      },
+      "fills": [
+        {
+          "id": "2fa66350-d203-48f0-9e51-e0f5a7b32d6d",
+          "makerOrderId": "5e797c1f-22d3-4b11-bddd-96a77f06c98e",
+          "takerOrderId": "5599f776-e63e-4979-bbab-497ead3f6f29",
+          "buyOrderId": "5599f776-e63e-4979-bbab-497ead3f6f29",
+          "sellOrderId": "5e797c1f-22d3-4b11-bddd-96a77f06c98e",
+          "quantity": "0.0500",
+          "price": "50000.00",
+          "notional": "2500.000000000",
+          "buyerFee": "2.500000000",
+          "sellerFee": "2.500000000",
+          "sequence": "18",
+          "fillIndex": 0
+        }
+      ]
+    },
+    "partialMarket": {
+      "commandId": "2d70ec06-bd99-4883-9095-6d14c869b953",
+      "sessionId": "8709eaef-cd3e-4770-8860-38a08470abfb",
+      "sequence": "19",
+      "status": "ACCEPTED",
+      "order": {
+        "id": "f2d3978f-9cdb-4740-9b03-701b67963e58",
+        "accountId": "71c0bc85-9486-4acd-a499-a20e4f598388",
+        "side": "BUY",
+        "price": "52500.00",
+        "type": "MARKET",
+        "quantity": "0.8000",
+        "remaining": "0.4500",
+        "status": "CANCELED",
+        "cancelReason": "INSUFFICIENT_LIQUIDITY",
+        "reserved": "0.000000000",
+        "sequence": "19"
+      },
+      "fills": [
+        {
+          "id": "27bc95e0-2251-4fed-a2d8-0eb4a90ea954",
+          "makerOrderId": "5e797c1f-22d3-4b11-bddd-96a77f06c98e",
+          "takerOrderId": "f2d3978f-9cdb-4740-9b03-701b67963e58",
+          "buyOrderId": "f2d3978f-9cdb-4740-9b03-701b67963e58",
+          "sellOrderId": "5e797c1f-22d3-4b11-bddd-96a77f06c98e",
+          "quantity": "0.1500",
+          "price": "50000.00",
+          "notional": "7500.000000000",
+          "buyerFee": "7.500000000",
+          "sellerFee": "7.500000000",
+          "sequence": "19",
+          "fillIndex": 0
+        },
+        {
+          "id": "a7034c5e-7f8c-47b2-96fb-ab2b78e7c1d2",
+          "makerOrderId": "6624af77-9140-4837-b10a-b0598c86db00",
+          "takerOrderId": "f2d3978f-9cdb-4740-9b03-701b67963e58",
+          "buyOrderId": "f2d3978f-9cdb-4740-9b03-701b67963e58",
+          "sellOrderId": "6624af77-9140-4837-b10a-b0598c86db00",
+          "quantity": "0.2000",
+          "price": "51000.00",
+          "notional": "10200.000000000",
+          "buyerFee": "10.200000000",
+          "sellerFee": "10.200000000",
+          "sequence": "19",
+          "fillIndex": 1
+        }
+      ]
+    }
+  },
+  "orderIds": {
+    "partial": "a17e8244-7d28-4cff-8a2c-f44aac73e1e2",
+    "filled": "459635a5-8ec3-4591-ba41-25097aad13ae",
+    "open": "f550f6d2-6f16-4f2a-beda-618f4b8bafac",
+    "canceled": "a7113963-648d-4ce8-8e03-0c928017b199",
+    "market": "5599f776-e63e-4979-bbab-497ead3f6f29",
+    "partialMarket": "f2d3978f-9cdb-4740-9b03-701b67963e58"
+  }
+}

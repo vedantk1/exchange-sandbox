@@ -38,6 +38,7 @@ The demo, integration, and browser test runners start real, temporary PostgreSQL
 - Exact scaled-integer quantities, prices, reservations, and fees; decimal strings at the service boundary.
 - Atomic orders, fills, double-entry journal entries, balance projections, command receipts, and notification records.
 - Database-protected accepted order terms, retained order rows, and runtime updates restricted to execution state.
+- Pinned migration checksums, explicit schema-verified adoption for older installations, and a frozen historical upgrade fixture that preserves exact accounting and receipt recovery.
 - Cancellation of remaining quantity with no duplicated fund release.
 - Protected market orders with a server-bound 5% price guard, a 10-second preview, immediate execution, and explicit canceled remainders.
 - Durable command identity: retries resolve the original outcome, while changed payloads are rejected.
@@ -52,13 +53,13 @@ The demo, integration, and browser test runners start real, temporary PostgreSQL
 - Browser regressions against real PostgreSQL, including uncertain-response recovery, simulator controls, rollover, archived balances, and actual CSV downloads, with failure traces/screenshots retained in CI.
 - Durable session rollover, exactly-once allocations, read-only financial archives, and recovery of the original transition after process loss.
 - Complete keyset history pagination and account/order lookup, plus native CSV downloads from one recorded snapshot with exact row counts, hashes, and expiry.
-- A self-host Compose package with pinned images, HTTPS proxying, owner migrations, a restricted application role, operational verification scripts, and reproducible large-session HTTP/chart benchmarks.
+- A self-host Compose package with pinned images, lockfile-managed runtime tooling, HTTPS proxying, owner migrations, a restricted application role, operational verification scripts, and reproducible large-session HTTP/chart benchmarks.
 
 The architecture is a modular monolith with PostgreSQL as the authority. Serializing mutations gives this single-market prototype an understandable consistency boundary. The reproducible workload and restore exercise are described in the [release guide](docs/RELEASE.md). Measurements apply to their explicit test configuration.
 
 ## Continuous integration
 
-The [GitHub Actions workflow](.github/workflows/ci.yml) checks every push and pull request on Linux: frozen dependency installation, type checking, formatting, unit tests, PostgreSQL integration tests, the web build, Chromium browser flows, all three self-host image targets, trusted-HTTPS asset routing, and a fresh PostgreSQL restore. Use the repository's **Actions** tab to inspect the current result and download its operational report. Failed browser runs retain traces and screenshots for seven days.
+The [GitHub Actions workflow](.github/workflows/ci.yml) checks every push and pull request on Linux: frozen dependency installation, type checking, formatting, unit tests, PostgreSQL integration tests including the frozen upgrade, the web build, Chromium browser flows, all three self-host image targets, trusted-HTTPS asset routing, locked production/operations loader startup, and a fresh PostgreSQL restore. Use the repository's **Actions** tab to inspect the current result and download its operational report. Failed browser runs retain traces and screenshots for seven days.
 
 Recorded results and their limits are documented in the [development evidence](docs/DEVELOPMENT.md#evidence-and-limitations).
 

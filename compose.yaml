@@ -21,10 +21,17 @@ services:
       context: .
       target: api
     image: spot-exchange-simulator-api:local
-    command: [tsx, apps/server/src/deploy/initialize.ts]
+    command:
+      [
+        node,
+        --import,
+        ./apps/server/node_modules/tsx/dist/loader.mjs,
+        apps/server/src/deploy/initialize.ts,
+      ]
     environment:
       DATABASE_URL_FILE: /run/secrets/owner_database_url
       RUNTIME_DATABASE_URL_FILE: /run/secrets/runtime_database_url
+      MIGRATION_LEGACY_BASELINE: ${MIGRATION_LEGACY_BASELINE:-}
     secrets:
       - owner_database_url
       - runtime_database_url
@@ -93,7 +100,13 @@ services:
   operator:
     image: spot-exchange-simulator-api:local
     profiles: [tools]
-    entrypoint: [tsx, apps/server/src/operator-cli.ts]
+    entrypoint:
+      [
+        node,
+        --import,
+        ./apps/server/node_modules/tsx/dist/loader.mjs,
+        apps/server/src/operator-cli.ts,
+      ]
     environment:
       DATABASE_URL_FILE: /run/secrets/runtime_database_url
     secrets:

@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Exchange } from '../../apps/server/src/exchange.js';
 import { provisionRuntimeRole } from '../../apps/server/src/deploy/runtime-role.js';
 import { isolatedDatabase } from '../../apps/server/src/operations/database.js';
-import { initializeOwner } from '../../apps/server/src/deploy/owner-initialization.js';
+import {
+  initializeOwner,
+  migrateOwner,
+} from '../../apps/server/src/deploy/owner-initialization.js';
 
 describe('owner migration and restricted application database role', () => {
   let database: Awaited<ReturnType<typeof isolatedDatabase>>;
@@ -50,6 +53,39 @@ describe('owner migration and restricted application database role', () => {
       runtime.query('CREATE TABLE public.unauthorized_owner_probe(id int)'),
     ).rejects.toMatchObject({ code: '42501' });
   });
+  it('rejects owner migration before touching metadata while the application owns the writer', async () => {
+    await provision();
+    exchange = await Exchange.open(runtimeUrl, { migrations: 'verify' });
+    const migrationEvidence = async () =>
+      (
+        await owner.query<{ row: string }>(
+          'SELECT row_to_json(m)::text AS row FROM schema_migrations m ORDER BY name',
+        )
+      ).rows;
+    const before = await migrationEvidence();
+
+    // An attempted metadata read/write would block here and produce a SQL
+    // timeout. Owner admission must reject the active writer before either.
+    await owner.query('BEGIN');
+    try {
+      await owner.query('LOCK TABLE schema_migrations IN ACCESS EXCLUSIVE MODE NOWAIT');
+      await expect(migrateOwner(database.url)).rejects.toMatchObject({
+        code: 'OWNER_WRITER_BUSY',
+      });
+    } finally {
+      await owner.query('ROLLBACK');
+    }
+    expect(await migrationEvidence()).toEqual(before);
+
+    await exchange.close();
+    exchange = undefined;
+    await migrateOwner(database.url);
+    expect(await migrationEvidence()).toEqual(before);
+    await initializeOwner(database.url, new URL(runtimeUrl));
+    expect(await migrationEvidence()).toEqual(before);
+    exchange = await Exchange.open(runtimeUrl, { migrations: 'verify' });
+    expect(await exchange.reconcile()).toEqual({ ok: true, issues: [] });
+  }, 10_000);
   it('rejects CREATE/ALTER/DROP and migration metadata writes while exact financial commands work', async () => {
     await provision();
     for (const statement of [
@@ -101,6 +137,44 @@ describe('owner migration and restricted application database role', () => {
     exchange = await Exchange.open(runtimeUrl, { migrations: 'verify' });
     expect(await exchange.placeLimit(input)).toEqual(buy);
     expect((await exchange.snapshot(buyer)).balances['USD-SIM'].available).toBe('94995.000000000');
+  });
+  it('removes old PUBLIC and role metadata mutation grants before runtime startup', async () => {
+    const metadata = async () =>
+      (
+        await owner.query<{ row: string }>(
+          'SELECT row_to_json(m)::text AS row FROM schema_migrations m ORDER BY name',
+        )
+      ).rows;
+    const before = await metadata();
+    await owner.query(`CREATE ROLE "${roleName}" NOINHERIT`);
+    await owner.query(`GRANT ALL ON schema_migrations TO PUBLIC, "${roleName}"`);
+    await owner.query('GRANT INSERT (checksum), UPDATE (checksum) ON schema_migrations TO PUBLIC');
+    try {
+      await provision();
+      const privileges = await runtime!.query(
+        `SELECT has_table_privilege(current_user, 'schema_migrations', 'SELECT') AS readable,
+          has_table_privilege(current_user, 'schema_migrations',
+            'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN') AS table_mutation,
+          has_any_column_privilege(current_user, 'schema_migrations',
+            'INSERT, UPDATE, REFERENCES') AS column_mutation`,
+      );
+      expect(privileges.rows).toEqual([
+        { readable: true, table_mutation: false, column_mutation: false },
+      ]);
+      for (const statement of [
+        'TRUNCATE schema_migrations',
+        'DELETE FROM schema_migrations',
+        'UPDATE schema_migrations SET checksum=checksum',
+        'INSERT INTO schema_migrations SELECT * FROM schema_migrations LIMIT 1',
+      ]) {
+        await expect(runtime!.query(statement)).rejects.toMatchObject({ code: '42501' });
+      }
+      expect(await metadata()).toEqual(before);
+      exchange = await Exchange.open(runtimeUrl, { migrations: 'verify' });
+      expect(await exchange.reconcile()).toEqual({ ok: true, issues: [] });
+    } finally {
+      await owner.query('REVOKE ALL ON schema_migrations FROM PUBLIC');
+    }
   });
   it('removes prior membership so the application cannot SET ROLE to the database owner', async () => {
     await owner.query(`CREATE ROLE "${roleName}" NOINHERIT`);

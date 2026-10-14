@@ -301,6 +301,8 @@ Administrator bootstrap and lost-access recovery are local owner-only CLI operat
 
 At startup, verify schema compatibility and singleton ownership, then enter recovery before allowing trading or scheduling the bot. Reconcile journal balances, reservation totals, order remaining quantities, fee totals, issuance, session uniqueness, and unfinished lifecycle operations. Receipts resolve ambiguous past requests; accepted orders retain their recorded priority.
 
+The browser serializes snapshot refreshes. Stream startup and synchronization use the final validated snapshot returned by that refresh operation, including its session/cursor; React query-observer rendering can lag and must not erase an already confirmed result. Concurrent receipt recovery retains its original actor/command, and submissions stay disabled until the live stream is synchronized.
+
 If reconciliation succeeds, restore the previous market/bot intentions as specified by the MVP. A stored operator pause remains paused. Failure leaves read-only inspection and access revocation available, while financial mutations remain halted.
 
 ### Database budgets and shutdown
@@ -320,7 +322,13 @@ Shutdown stops HTTP admissions/live delivery and simulator dispatch together. Da
 
 A newly detected runtime invariant failure must latch a halt independently of the failed financial changes. Establish a savepoint after acquiring the control lock, perform financial work and deferred validation inside it, and on an invariant failure roll back to that savepoint before recording the fault gate and failed command result in the outer transaction. Ordinary business rejections do not latch a fault. If the transaction or database connection is unusable, stop local admission immediately, roll back, and persist the halt in a separate transaction when possible; queued commands recheck local admission health under the control lock. Stay unready while the halt cannot be persisted. Recovery must reconcile and finish required pending cancellations before clearing the fault. Never roll back a fault flag together with the failed trade and then continue accepting orders.
 
-Use reviewed explicit migrations under a migration lock. Refuse an incompatible/newer schema and separate the migration role from the restricted application role. Document backup and restore with PostgreSQL tooling and exercise restoration into a fresh database. A persistent container volume alone is not a backup.
+Use reviewed explicit migrations under a migration lock. `migration-registry.ts` pins SHA-256 over each exact UTF-8 SQL statement, including whitespace; source verification runs before migration DDL. Existing migrations remain immutable. Add a new migration for changes rather than editing SQL or refreshing an old pin. Applied names must be a contiguous known prefix, and stored hashes must match. Migration 010 completes the checksum metadata protocol; older runtimes reject its extra marker.
+
+Restricted runtime startup checks the complete version set, metadata structure, hashes, provenance and verification timestamps without DDL. It rejects names-only history. Explicit owner adoption requires an exact legacy baseline and structural equivalence to the pinned schema prefix built in a temporary namespace on the same PostgreSQL server. The comparison preserves SQL literals/function bodies and includes table/index/constraint/trigger/function/type/sequence/rule/policy definitions. It excludes rows, owners, privileges, comments and migration metadata, whose structure is validated separately. This is a compatibility check, not proof of historical execution or a defense against an owner who rewrites both schema and metadata. Runtime verification does not continuously fingerprint the entire application schema.
+
+Adoption and pending migrations run in one transaction under the migration lock. Original migration `applied_at` values remain intact. `checksum_origin=LEGACY_SCHEMA_VERIFIED` discloses adoption; newly executed SQL uses `APPLIED`, and `verified_at` records verification time. Adopted origins must form a contiguous historical prefix ending no later than 009. Repeating the same adoption baseline safely resolves a lost reply. The owner entry points also acquire singleton writer ownership before migrating, with bounded maintenance and shutdown. Runtime metadata is SELECT-only: provisioning removes old PUBLIC/table/column mutation grants and checks effective privileges. Financial rows, receipts and allocation records are not rewritten by checksum adoption. The release guide describes backup, stop/adopt/restart and mismatch recovery.
+
+Separate the owner role from the restricted application role. API and operations images use the same server-local TypeScript loader installed from the frozen workspace lockfile; IPC workers inherit the parent's loader arguments. CI tests actual restricted startup and a real operations child. Document backup and restore with PostgreSQL tooling and exercise restoration into a fresh database. A persistent container volume alone is not a backup.
 
 Structured logs should identify request, command, exchange session, sequence, and outcome while redacting credentials, cookies, invitation links, recovery links, and private payloads. Collect command latency, lock waits, failed invariants, rejected commands, recovery state, SSE reconnects, and bot inventory conditions. Expose liveness separately from readiness; a recovering service can be alive without being ready to trade.
 
@@ -354,6 +362,7 @@ Implementation order:
 9. Bounded database work/shutdown, isolated market reads, accurate command timestamps, and frontend recovery — implemented.
 10. Database protection for accepted order terms and retained order evidence — implemented.
 11. Indexed large-session candles/history, complete prepared CSV downloads, lifecycle regressions, and measured HTTP/SSE/export workloads — implemented; see the disclosed performance and memory results in the release guide.
+12. Pinned migration checksums, explicit legacy schema attestation, frozen historical upgrade evidence, and lockfile-managed production/operations tooling — implemented.
 
 These increments are implementation order, not separate weakened definitions of done. Accounting and recovery are prerequisites for the polished trading experience.
 

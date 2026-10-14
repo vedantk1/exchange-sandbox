@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import { AuthService } from '../../apps/server/src/auth/index.js';
 import { allocateTrader, initializeSession } from '../../apps/server/src/core-mutations.js';
 import { Exchange } from '../../apps/server/src/exchange.js';
-import { createDatabase } from '../../packages/database/src/index.js';
+import { createDatabase, migrate, withDatabaseBudget } from '../../packages/database/src/index.js';
 import { INITIAL_SCHEMA } from '../../packages/database/src/schema.js';
 import { TEST_PASSWORD } from '../helpers/api.js';
 import { createUpgradeDatabase } from '../helpers/api-upgrade.js';
@@ -55,7 +55,10 @@ it('upgrades a committed milestone-one installation without changing its account
       [{ identity_table: null }],
     );
 
-    exchange = await Exchange.open(context.url);
+    await withDatabaseBudget(legacy, 'maintenance', () =>
+      migrate(legacy, { legacyBaseline: '001_exchange_core' }),
+    );
+    exchange = await Exchange.open(context.url, { migrations: 'verify' });
     expect(
       (await context.sql.query('SELECT name FROM schema_migrations ORDER BY name')).rows,
     ).toEqual([
@@ -68,6 +71,7 @@ it('upgrades a committed milestone-one installation without changing its account
       { name: '007_command_timestamps' },
       { name: '008_order_integrity' },
       { name: '009_large_session_reads' },
+      { name: '010_migration_checksums' },
     ]);
     expect((await context.sql.query('SELECT session_id FROM demo_market')).rows).toEqual([]);
     const snapshot = await exchange.snapshot(accountId);

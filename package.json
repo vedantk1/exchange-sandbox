@@ -23,6 +23,7 @@
     "dev": "tsx scripts/with-postgres.ts dev",
     "admin:setup": "tsx scripts/with-postgres.ts setup",
     "admin:reset": "tsx scripts/with-postgres.ts reset",
+    "db:migrate": "tsx scripts/with-postgres.ts migrate",
     "selfhost:prepare": "tsx scripts/deploy/prepare.ts",
     "ops:benchmark": "tsx scripts/with-postgres.ts benchmark",
     "ops:benchmark:session": "tsx scripts/with-postgres.ts large-session-benchmark",
