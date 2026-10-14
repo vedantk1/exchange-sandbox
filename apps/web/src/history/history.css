@@ -1,4 +1,5 @@
 .session-history {
+  width: 100%;
   min-width: 0;
 }
 .history-session-panel,
@@ -115,6 +116,8 @@
     padding: 16px;
   }
   .history-session-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
   }
   .history-session-controls .field,

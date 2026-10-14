@@ -52,11 +52,15 @@ jobs:
         run: |
           mkdir -p .local/operations
           docker run --rm --network host --user "$(id -u):$(id -g)" -e DATABASE_URL="$TEST_DATABASE_URL" --mount type=bind,source="$PWD/.local/operations",target=/app/.local/operations exchange-sandbox-operations:ci
-      - uses: actions/upload-artifact@v4
-        if: always()
+      - name: Upload the verified restore report
+        uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: operational-verification-reports
-          path: .local/operations/*-result.json
+          path: .local/operations/restore-result.json
+          # This exact report is sanitized; other private .local files stay excluded.
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-artifact@v4
         if: failure()

@@ -16,6 +16,8 @@ pnpm dev
 
 Open `http://localhost:3000`. Setup prompts for the administrator handle and a password without echoing it. The first session starts paused, and the development runner retains PostgreSQL data between runs.
 
+For a Docker deployment with HTTPS, persistent storage, and restricted database access, follow the [self-host guide](docs/RELEASE.md#self-host-package).
+
 Sign in as the administrator, create invitations, and privately hand the single-use links to participants. After they join, resume trading with a recorded reason. For manual trading, use separately signed-in browser profiles to place a resting sell and a crossing buy, then inspect their fills and exact balance changes.
 
 For ongoing synthetic activity, use **Start simulator** in the administrator overview, give a reason, and resume trading. Two automated accounts place ordinary orders in the shared book. Their executions build the chart; allow several minutes for multiple one-minute candles. Inspect inventory and per-order funding shortfalls in the same panel. Pause the market before granting more virtual funds. **Stop simulator** cancels only the automated accounts' remaining orders and preserves completed trades. Application restarts retain the enabled/stopped setting and never refill inventory. See the [development guide](docs/DEVELOPMENT.md#market-simulator).
@@ -51,6 +53,12 @@ The demo, integration, and browser test runners start real, temporary PostgreSQL
 - A self-host Compose package with pinned images, HTTPS proxying, owner migrations, a restricted application role, and operational verification scripts.
 
 The architecture is a modular monolith with PostgreSQL as the authority. Serializing mutations gives this single-market prototype an understandable consistency boundary. The reproducible workload and restore exercise are described in the [release guide](docs/RELEASE.md). Measurements apply to their explicit test configuration.
+
+## Continuous integration
+
+The [GitHub Actions workflow](.github/workflows/ci.yml) checks every push and pull request on Linux: frozen dependency installation, type checking, formatting, unit tests, PostgreSQL integration tests, the web build, Chromium browser flows, all three self-host image targets, and a fresh PostgreSQL restore. Use the repository's **Actions** tab to inspect the current result and download its operational report. Failed browser runs retain traces and screenshots for seven days.
+
+Recorded results and their limits are documented in the [development evidence](docs/DEVELOPMENT.md#evidence-and-limitations).
 
 ## Project documentation
 

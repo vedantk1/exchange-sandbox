@@ -135,13 +135,24 @@ test('reviewed rollover preserves final records and resets connected trader form
         ),
       )
       .toBeLessThanOrEqual(1);
+    const historyBounds = await traderPage.locator('.session-history').boundingBox();
+    const mainBounds = await traderPage.getByRole('main').boundingBox();
+    expect(Math.abs(historyBounds!.width - mainBounds!.width)).toBeLessThanOrEqual(1);
     const sessionControl = traderPage.getByLabel('Trading session', { exact: true });
     await sessionControl.scrollIntoViewIfNeeded();
     await expect(sessionControl).toBeVisible();
     const sessionControlBounds = await sessionControl.boundingBox();
     expect(sessionControlBounds?.width).toBeGreaterThan(200);
     expect(sessionControlBounds?.width).toBeLessThanOrEqual(362);
-    await expect(traderPage.getByRole('button', { name: 'Export consistent CSV' })).toBeVisible();
+    const exportButton = traderPage.getByRole('button', { name: 'Export consistent CSV' });
+    await expect(exportButton).toBeVisible();
+    const exportButtonBounds = await exportButton.boundingBox();
+    expect(exportButtonBounds!.y).toBeGreaterThanOrEqual(
+      sessionControlBounds!.y + sessionControlBounds!.height,
+    );
+    expect(Math.abs(exportButtonBounds!.width - sessionControlBounds!.width)).toBeLessThanOrEqual(
+      1,
+    );
     await expect(
       traderPage.getByRole('button', { name: 'Next records', exact: true }),
     ).toBeVisible();
