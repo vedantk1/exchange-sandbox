@@ -496,6 +496,45 @@ export const HistoryExport = Type.Object({
   cursor: Cursor,
   files: Type.Array(Type.Object({ name: Type.String(), content: Type.String() })),
 });
+export const PrepareHistoryExportBody = Type.Object(
+  { accountId: Type.Optional(Id) },
+  { additionalProperties: false },
+);
+export const PreparedHistoryExport = Type.Object({
+  exportId: Id,
+  sessionId: Id,
+  accountId: Type.Union([Id, Type.Null()]),
+  auditScope: Type.Union([Type.Literal('SESSION'), Type.Literal('NONE')]),
+  asOf: Type.String(),
+  cursor: Cursor,
+  expiresAt: Type.String(),
+  files: Type.Array(
+    Type.Object({
+      name: Type.String(),
+      bytes: Type.Integer({ minimum: 0 }),
+      rows: Type.Integer({ minimum: 0 }),
+      sha256: Type.String({ pattern: '^[a-f0-9]{64}$' }),
+      downloadUrl: Type.String(),
+    }),
+  ),
+});
+export const HistoryExportFileParam = Type.Object(
+  {
+    exportId: Id,
+    fileName: Type.Union(
+      [
+        'manifest.csv',
+        'orders.csv',
+        'fills.csv',
+        'activity.csv',
+        'commands.csv',
+        'balances.csv',
+        'audit.csv',
+      ].map((name) => Type.Literal(name)),
+    ),
+  },
+  { additionalProperties: false },
+);
 export const AccountSearchQuery = Type.Object(
   {
     search: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
@@ -515,5 +554,6 @@ export type HistoryView = Static<typeof History>;
 export type HistoryPageView = Static<typeof HistoryPage>;
 export type HistoryPageQueryInput = Static<typeof HistoryPageQuery>;
 export type HistoryExportView = Static<typeof HistoryExport>;
+export type PreparedHistoryExportView = Static<typeof PreparedHistoryExport>;
 export type AccountSearchView = Static<typeof AccountSearch>;
 export type AccountSearchQueryInput = Static<typeof AccountSearchQuery>;

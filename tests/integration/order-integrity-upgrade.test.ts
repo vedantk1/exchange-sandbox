@@ -182,11 +182,15 @@ it('protects existing007 orders without rewriting evidence or changing recovery 
     exchange = await Exchange.open(context.url);
     expect(
       (await context.sql.query('SELECT name FROM schema_migrations ORDER BY name')).rows,
-    ).toEqual([...legacyMigrations.map(([name]) => ({ name })), { name: '008_order_integrity' }]);
+    ).toEqual([
+      ...legacyMigrations.map(([name]) => ({ name })),
+      { name: '008_order_integrity' },
+      { name: '009_large_session_reads' },
+    ]);
     expect(
       (
         await context.sql.query<{ row: string }>(
-          "SELECT row_to_json(t)::text AS row FROM schema_migrations t WHERE name <> '008_order_integrity' ORDER BY name",
+          "SELECT row_to_json(t)::text AS row FROM schema_migrations t WHERE name <= '007_command_timestamps' ORDER BY name",
         )
       ).rows,
     ).toEqual(originalVersions.rows);

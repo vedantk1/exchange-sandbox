@@ -11,6 +11,7 @@ import { Exchange } from '../../apps/server/src/exchange.js';
 
 const budgets: DatabaseBudgets = {
   read: { statementMs: 100, totalMs: 500 },
+  export: { statementMs: 700, totalMs: 1_200 },
   command: { statementMs: 700, totalMs: 1_200 },
   maintenance: { statementMs: 2_000, totalMs: 3_000 },
 };

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type {
   AccountView,
-  HistoryExportView,
+  PreparedHistoryExportView,
   HistoryPageView,
   HistoryView,
   OrderDetailResponse,
@@ -61,7 +61,8 @@ export function SessionHistory({
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [bundle, setBundle] = useState<HistoryExportView | null>(null);
+  const [bundle, setBundle] = useState<PreparedHistoryExportView | null>(null);
+  const exportController = useRef<AbortController | null>(null);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const sessions = useQuery({
@@ -110,6 +111,7 @@ export function SessionHistory({
     retry: false,
   });
   useEffect(() => {
+    exportController.current?.abort();
     setPageScope(scope);
     setCursor(null);
     setPrevious([]);
@@ -131,6 +133,7 @@ export function SessionHistory({
   ];
   const currentExportScope = useRef({ sessionId, accountId });
   currentExportScope.current = { sessionId, accountId };
+  useEffect(() => () => exportController.current?.abort(), []);
   const session = history.data?.session;
   const archived = session?.state === 'CLOSED';
   const account = admin ? inspectedAccount.data : history.data?.account;
@@ -161,13 +164,15 @@ export function SessionHistory({
     if (exporting || (!accountId && kind !== 'audit')) return;
     setExporting(true);
     setExportError(null);
-    const scope = admin && accountId ? `?accountId=${encodeURIComponent(accountId)}` : '';
+    const controller = new AbortController();
+    exportController.current = controller;
     try {
-      const value = await api<HistoryExportView>(
-        `/api/history/${sessionId}/export${scope}`,
-        undefined,
-        undefined,
+      const value = await api<PreparedHistoryExportView>(
+        `/api/history/${sessionId}/exports`,
+        admin && accountId ? { accountId } : {},
+        controller.signal,
         actorId,
+        45_000,
       );
       if (
         value.sessionId !== sessionId ||
@@ -181,8 +186,9 @@ export function SessionHistory({
         return;
       setBundle(value);
     } catch (error) {
-      setExportError(errorMessage(error));
+      if (!controller.signal.aborted) setExportError(errorMessage(error));
     } finally {
+      if (exportController.current === controller) exportController.current = null;
       setExporting(false);
     }
   }
@@ -547,7 +553,16 @@ export function SessionHistory({
         disabled
         readOnly
       />
-      {bundle && <ExportDialog bundle={bundle} close={() => setBundle(null)} />}
+      {bundle && (
+        <ExportDialog
+          bundle={bundle}
+          close={() => setBundle(null)}
+          regenerate={() => {
+            setBundle(null);
+            void exportHistory();
+          }}
+        />
+      )}
     </div>
   );
 }

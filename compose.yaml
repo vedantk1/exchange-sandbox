@@ -41,8 +41,11 @@ services:
       DATABASE_URL_FILE: /run/secrets/runtime_database_url
       API_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN to the exact HTTPS origin}
       TRUST_PROXY_HOPS: '1'
+      HISTORY_EXPORT_DIRECTORY: .local/history-exports
     secrets:
       - runtime_database_url
+    volumes:
+      - history_exports:/app/.local/history-exports
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -130,5 +133,6 @@ secrets:
 
 volumes:
   postgres_data:
+  history_exports:
   caddy_data:
   caddy_config:

@@ -12,6 +12,7 @@ import { AuthError } from './auth/errors.js';
 import type { Exchange } from './exchange.js';
 import { simulatorInventory } from './demo-market/inventory.js';
 import { fillView, orderView } from './views.js';
+import { marketCandleQuery } from './market-candles.js';
 
 export const HISTORY_LIMIT = 100;
 type Tx = Transaction<Database>;
@@ -255,21 +256,7 @@ export async function marketWorkspace(tx: Tx, sessionId: string): Promise<Worksp
     .orderBy('fill_index', 'desc')
     .limit(HISTORY_LIMIT)
     .execute();
-  // Aggregate full minute buckets before limiting. Never infer candles from a truncated trade list.
-  const candles = await sql<{
-    timestamp: Date;
-    open: string;
-    high: string;
-    low: string;
-    close: string;
-    volume: string;
-  }>`
-    SELECT date_trunc('minute', created_at) AS timestamp,
-      (array_agg(price ORDER BY sequence, fill_index))[1]::text AS open,
-      max(price)::text AS high, min(price)::text AS low,
-      (array_agg(price ORDER BY sequence DESC, fill_index DESC))[1]::text AS close,
-      sum(quantity)::text AS volume FROM fills WHERE session_id = ${sessionId}::uuid
-    GROUP BY date_trunc('minute', created_at) ORDER BY timestamp DESC LIMIT 60`.execute(tx);
+  const candles = await marketCandleQuery(sessionId).execute(tx);
   return {
     book: { bids, asks },
     trades: trades.map((fill) => ({

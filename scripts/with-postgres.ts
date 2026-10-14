@@ -13,10 +13,12 @@ if (
   mode !== 'setup' &&
   mode !== 'reset' &&
   mode !== 'restore' &&
-  mode !== 'benchmark'
+  mode !== 'benchmark' &&
+  mode !== 'large-session-benchmark' &&
+  mode !== 'benchmark-candles'
 ) {
   throw new Error(
-    'Usage: tsx scripts/with-postgres.ts <test|browser|demo|dev|setup|reset|restore|benchmark>',
+    'Usage: tsx scripts/with-postgres.ts <test|browser|demo|dev|setup|reset|restore|benchmark|large-session-benchmark|benchmark-candles>',
   );
 }
 
@@ -25,7 +27,12 @@ const localDirectory = '.local/development-postgres';
 const metadataPath = '.local/development-database.json';
 
 const connectionVariable =
-  mode === 'test' || mode === 'browser' || mode === 'restore' || mode === 'benchmark'
+  mode === 'test' ||
+  mode === 'browser' ||
+  mode === 'restore' ||
+  mode === 'benchmark' ||
+  mode === 'large-session-benchmark' ||
+  mode === 'benchmark-candles'
     ? 'TEST_DATABASE_URL'
     : 'DATABASE_URL';
 const externalUrl = process.env[connectionVariable];
@@ -148,23 +155,25 @@ async function printDatabaseVersion(connectionString: string): Promise<void> {
 
 async function runChild(connectionString: string): Promise<number> {
   const arguments_ =
-    mode === 'restore' || mode === 'benchmark'
-      ? ['--import', 'tsx', `apps/server/src/operations/${mode}.ts`]
-      : mode === 'test'
-        ? [
-            'node_modules/vitest/vitest.mjs',
-            'run',
-            '--config',
-            'vitest.integration.config.ts',
-            ...process.argv.slice(3),
-          ]
-        : mode === 'browser'
-          ? ['node_modules/@playwright/test/cli.js', 'test', ...process.argv.slice(3)]
-          : mode === 'demo'
-            ? ['--import', 'tsx', 'apps/server/src/demo.ts']
-            : mode === 'dev'
-              ? ['--import', 'tsx', 'scripts/dev.ts']
-              : ['--import', 'tsx', 'apps/server/src/operator-cli.ts', mode!];
+    mode === 'benchmark-candles'
+      ? ['--import', 'tsx', 'apps/server/src/operations/candle-benchmark-cli.ts']
+      : mode === 'restore' || mode === 'benchmark' || mode === 'large-session-benchmark'
+        ? ['--import', 'tsx', `apps/server/src/operations/${mode}.ts`]
+        : mode === 'test'
+          ? [
+              'node_modules/vitest/vitest.mjs',
+              'run',
+              '--config',
+              'vitest.integration.config.ts',
+              ...process.argv.slice(3),
+            ]
+          : mode === 'browser'
+            ? ['node_modules/@playwright/test/cli.js', 'test', ...process.argv.slice(3)]
+            : mode === 'demo'
+              ? ['--import', 'tsx', 'apps/server/src/demo.ts']
+              : mode === 'dev'
+                ? ['--import', 'tsx', 'scripts/dev.ts']
+                : ['--import', 'tsx', 'apps/server/src/operator-cli.ts', mode!];
   return new Promise<number>((resolve, reject) => {
     child = spawn(process.execPath, arguments_, {
       stdio: 'inherit',

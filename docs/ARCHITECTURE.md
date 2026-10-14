@@ -173,7 +173,7 @@ Store atom values as PostgreSQL NUMERIC(38,0), with checked string parsing and r
 
 Milestone 1 caps an order at 100 BTC-SIM and a price at 100,000,000 USD-SIM per BTC-SIM. Decimal input strings are at most 64 characters, with no whitespace, sign, exponent, or excess precision. Quote atoms fit within NUMERIC(38,0); the largest individual order reservation is 10,010,000,000,000,000,000 atoms, well below that limit. Invalid quantity/price syntax or bounds raise INVALID_QUANTITY / INVALID_PRICE before persistence; a submitted notional below 1 USD-SIM produces a durable ORDER_TOO_SMALL rejection. The 50-resting-order-per-trader admission limit produces OPEN_ORDER_LIMIT. Malformed UUIDs raise INVALID_ID. These are engineering bounds, not claims of realistic market pricing or measured capacity.
 
-Milestone 2 caps an individual grant at 100 BTC-SIM or 10,000,000 USD-SIM, accepts request bodies up to 16 KiB, and bounds inspection history as described in the [API guide](API.md). Aggregate installation/history retention and export limits still need explicit contracts before those features ship.
+Milestone 2 caps an individual grant at 100 BTC-SIM or 10,000,000 USD-SIM, accepts request bodies up to 16 KiB, and bounds inspection history as described in the [API guide](API.md). Prepared exports have explicit time, disk-size, concurrency, and retention limits described below. Aggregate installation/history retention remains separate work.
 
 Use an append-only double-entry journal balanced separately for each asset. Transfers between available and reserved buckets explain reservations. Trades transfer base and quote assets, with fees going to the system fee account. Grants credit a participant against an explicit virtual-issuance control account; that bookkeeping offset is not a spendable negative customer balance.
 
@@ -198,7 +198,7 @@ The schema design should distinguish these concepts without requiring one table 
 
 Orders, balances, journal records, and market history are explicitly session-scoped. Receipt lookup remains possible for an archived session. Initial allocations are unique for participant/session/asset. At most one session is active; historical sessions are immutable through application interfaces.
 
-Candles can initially be derived from executions. If an incrementally maintained candle projection is needed, treat it as rebuildable, record its source cursor, and never fabricate missing trades. The last trade price can remain absent even with a populated book.
+Candles are derived from executions. Migration `009_large_session_reads` adds a covering UTC-minute index; indexed seeks find the latest 60 populated minutes, then aggregation includes every execution in those complete buckets. Opening and closing prices follow execution sequence and fill index. Sparse minutes are omitted, and database connection time zones do not change bucket boundaries. Additional indexes support per-order fill totals and account/session history traversal. An incremental candle projection remains unnecessary for this measured scope. The last trade price can remain absent even with a populated book.
 
 ## Market previews and API behavior
 
@@ -244,7 +244,9 @@ The client persists the original unresolved command in per-account session stora
 
 A root React error boundary handles rendering errors and rejected lazy imports with an accessible recovery screen and an explicit reload. It neither clears saved commands nor resends them. Reload reconstructs recovery for the signed-in actor; changing the origin's cookie cannot resolve another account's pending request. The boundary requires the initial application JavaScript to have loaded. Caddy serves `/assets/*` without SPA fallback, returning missing chunks as uncached 404 responses while existing hashed assets retain immutable caching.
 
-For an export, use one Read Only Repeatable Read transaction for all datasets and its as-of manifest. Generate the bounded files promptly, release the database snapshot, then deliver the download. Do not hold that transaction open for a slow download. Keep temporary artifacts outside public/static paths, reauthorize their owner at download time, and delete them after download or expiry. Apply ownership filters and safe CSV encoding, including user-controlled text. PostgreSQL's isolation levels make the snapshot boundary meaningful. [PostgreSQL transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html)
+For an export, use one Read Only Repeatable Read transaction for all datasets and its as-of manifest. Generate private disk files in batches of 500 rows under the dedicated export budget, release the database snapshot, then stream completed files with backpressure. Do not hold that transaction open for a slow download. Keep temporary artifacts outside public/static paths, reauthorize their owner at download time, and delete them after expiry or shutdown; repeated downloads are allowed during their five-minute lifetime. Apply ownership filters and safe CSV encoding, including user-controlled text. PostgreSQL's isolation levels make the snapshot boundary meaningful. [PostgreSQL transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html)
+
+Prepared exports return metadata and authenticated file links rather than CSV strings. Each export is bound to its creator's account and role; authorization is checked again before publication and each download. At most two preparations and eight retained bundles (two per owner) are admitted; publication replaces the oldest bundle without an active download when retention capacity is needed. This bounds retained and in-progress CSV storage to at most 1,280 MiB, excluding filesystem overhead. A bundle is capped at 128 MiB with explicit failure, never truncation. Client aborts, exhausted budgets, and shutdown fence publication and clean temporary files. The API uses a private disk-backed `history_exports` volume in Compose; `/tmp` is memory-backed there and is unsuitable for large export storage. Files are ephemeral, excluded from backups, and removed on restart. Downloads have a separate 30-second deadline and do not hold a database transaction.
 
 ## Administrator and session transitions
 
@@ -308,6 +310,7 @@ The managed PostgreSQL adapter selects a trusted resource budget before connecti
 | Work                                             | Statement limit | Total database-work limit |
 | ------------------------------------------------ | --------------- | ------------------------- |
 | Read snapshot                                    | 3 seconds       | 5 seconds                 |
+| Export preparation                               | 5 seconds       | 30 seconds                |
 | Ordinary command/access mutation                 | 10 seconds      | 15 seconds                |
 | Startup, reconciliation, and rollover completion | 60 seconds      | 120 seconds               |
 
@@ -342,12 +345,15 @@ Implementation order:
 
 1. Exact domain values, matching/accounting rules, and technical numeric bounds — implemented.
 2. PostgreSQL schema and transactional vertical slice proving the MVP partial-fill/cancel example, duplicate-command recovery, and invariant checks — implemented; see the development guide for test evidence and limitations.
-3. Invitations/authentication, HTTP contracts, administrator gates, grants, and access-recovery cases — implemented. Session rollover remains a separate increment.
-4. Trader/admin UI, limit-order review, live synchronization, and explainable bounded history — implemented. Protected market-order previews and terminal outcomes are now implemented.
+3. Invitations/authentication, HTTP contracts, administrator gates, grants, and access-recovery cases — implemented. Session rollover is implemented in increment 7.
+4. Trader/admin UI, limit-order review, live synchronization, and explainable bounded history — implemented. Protected market-order previews and terminal outcomes are implemented in increment 6.
 5. Administrator-managed two-account simulator, inventory/funding, sparse-chart explanations, and browser CI regression coverage — implemented.
 6. Protected market orders, immutable 10-second previews, and recovery/browser regressions — implemented.
 7. Session rollover, retained archives, complete history/search, and coherent CSV exports — implemented.
 8. Packaged self-host setup, backup/restore exercise, measured workload validation, and release acceptance — see [release verification](RELEASE.md).
+9. Bounded database work/shutdown, isolated market reads, accurate command timestamps, and frontend recovery — implemented.
+10. Database protection for accepted order terms and retained order evidence — implemented.
+11. Indexed large-session candles/history, complete prepared CSV downloads, lifecycle regressions, and measured HTTP/SSE/export workloads — implemented; see the disclosed performance and memory results in the release guide.
 
 These increments are implementation order, not separate weakened definitions of done. Accounting and recovery are prerequisites for the polished trading experience.
 
@@ -357,4 +363,4 @@ The global command lock is an intentional bottleneck. Large books, long exports,
 
 Revisit in-memory matching or engine extraction if measured command latency/throughput misses agreed targets after SQL and transaction work are profiled. Revisit per-market serialization only if multiple markets become accepted scope, including how cross-market account funds stay consistent. Add a broker or more application replicas only when delivery or deployment requirements require them and leader/fencing semantics are designed.
 
-Before implementing the remaining adapters, settle their input/export bounds and the initial latency/resource test target. Before public release, choose the project's open-source license and preserve dependency notices. Real funds remain outside the accepted scope.
+The project uses the MIT license and preserves dependency notices. Revisit export resource budgets, archive retention, and deployment sizing using measurements on the intended host; current local reports describe their specific workloads. Real funds remain outside the accepted scope.

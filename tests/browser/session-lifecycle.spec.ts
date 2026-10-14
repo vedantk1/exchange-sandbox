@@ -1,7 +1,10 @@
 import { mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import type { HistoryExportView, WorkspaceView } from '../../packages/contracts/src/index.js';
+import type {
+  PreparedHistoryExportView,
+  WorkspaceView,
+} from '../../packages/contracts/src/index.js';
 import { test, expect, login } from './fixtures.js';
 
 async function reviewRollover(page: Page, sessionId: string) {
@@ -252,15 +255,18 @@ test('complete history paginates, finds older records, and downloads exact CSV f
   await page.getByLabel('Find record by ID', { exact: true }).fill(ids[0]!);
   await expect(page.locator('tbody tr').filter({ hasText: 'Limit' })).toHaveCount(1);
   await expect(page.getByText('Page 1 · 25 records per page', { exact: true })).toBeVisible();
+  const preparing = page.waitForResponse(
+    (response) => response.url().endsWith('/exports') && response.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: 'Export consistent CSV' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Every file below comes from the same committed snapshot');
-  const exportResponse = (
-    await trader.browser.request('GET', `/api/history/${application.api.sessionId}/export`)
-  ).json<HistoryExportView>();
+  const exportResponse = (await (await preparing).json()) as PreparedHistoryExportView;
   const orderFile = exportResponse.files.find((file) => file.name === 'orders.csv');
-  expect(orderFile?.content).toContain(ids[0]);
-  expect(orderFile?.content).toContain(ids[26]);
+  expect(orderFile?.rows).toBe(27);
+  expect(orderFile).not.toHaveProperty('content');
+  expect(orderFile?.downloadUrl).toContain('/api/history/exports/');
+  await expect(dialog).toContainText('27 rows');
   const downloading = page.waitForEvent('download');
   await dialog.getByRole('link', { name: 'orders.csv', exact: true }).click();
   const download = await downloading;
@@ -273,4 +279,6 @@ test('complete history paginates, finds older records, and downloads exact CSV f
   expect(downloaded).toContain(ids[26]);
   expect(downloaded).toContain('0.0001');
   expect(downloaded.split('\n').length).toBe(29);
+  await dialog.getByRole('button', { name: 'Prepare fresh export' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Download links expire in');
 });

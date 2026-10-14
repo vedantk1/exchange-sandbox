@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { PoolClient } from 'pg';
 
-export type DatabaseBudgetKind = 'read' | 'command' | 'maintenance';
+export type DatabaseBudgetKind = 'read' | 'export' | 'command' | 'maintenance';
 export interface DatabaseBudget {
   statementMs: number;
   totalMs: number;
@@ -11,6 +11,7 @@ export type DatabaseBudgets = Record<DatabaseBudgetKind, DatabaseBudget>;
 /** Resource limits, not advertised latency guarantees. Maintenance is deliberately explicit. */
 export const DEFAULT_DATABASE_BUDGETS: DatabaseBudgets = {
   read: { statementMs: 3_000, totalMs: 5_000 },
+  export: { statementMs: 5_000, totalMs: 30_000 },
   command: { statementMs: 10_000, totalMs: 15_000 },
   maintenance: { statementMs: 60_000, totalMs: 120_000 },
 };

@@ -155,5 +155,12 @@ export function installHttpAdmission(app: FastifyInstance, options: HttpAdmissio
       return run(request, () => handler.call(this, request, reply), true);
     };
   });
-  return { run };
+  return {
+    run,
+    requestSignal(request: FastifyRequest): AbortSignal {
+      const state = requests.get(request);
+      if (!state) throw new AdmissionError('ADMISSION_BUSY');
+      return state.controller.signal;
+    },
+  };
 }

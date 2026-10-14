@@ -24,6 +24,7 @@ RUN pnpm install --prod --frozen-lockfile --filter @sandbox/server...
 COPY apps/server/src apps/server/src
 COPY packages packages
 COPY scripts/deploy scripts/deploy
+RUN mkdir -p /app/.local/history-exports && chown node:node /app/.local/history-exports && chmod 700 /app/.local/history-exports
 USER node
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3001
 CMD ["tsx", "apps/server/src/main.ts"]

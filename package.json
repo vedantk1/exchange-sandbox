@@ -25,6 +25,8 @@
     "admin:reset": "tsx scripts/with-postgres.ts reset",
     "selfhost:prepare": "tsx scripts/deploy/prepare.ts",
     "ops:benchmark": "tsx scripts/with-postgres.ts benchmark",
+    "ops:benchmark:session": "tsx scripts/with-postgres.ts large-session-benchmark",
+    "ops:benchmark:charts": "tsx scripts/with-postgres.ts benchmark-candles",
     "ops:restore": "tsx scripts/with-postgres.ts restore"
   },
   "devDependencies": {

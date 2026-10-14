@@ -235,6 +235,17 @@ export class Exchange {
     );
   }
 
+  /** Complete exports use one bounded snapshot, independently of network download speed. */
+  async exportReadTransaction<T>(work: (tx: Transaction<Database>) => Promise<T>): Promise<T> {
+    return withDatabaseBudget(this.db, 'export', () =>
+      this.db
+        .transaction()
+        .setIsolationLevel('repeatable read')
+        .setAccessMode('read only')
+        .execute(work),
+    );
+  }
+
   /** Only recovery/admin modules may use this; callers must reconcile before clearing a fault. */
   async recoveryTransaction<T>(
     work: (tx: Transaction<Database>, control: Control) => Promise<T>,

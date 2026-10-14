@@ -1,0 +1,61 @@
+{
+  "generatedAt": "2026-10-14T16:23:49.935Z",
+  "kind": "historical-candle-query-comparison",
+  "postgres": "18.4",
+  "fixture": {
+    "synthetic": true,
+    "totalFills": 105000,
+    "populatedMinutes": 5001,
+    "oldFillsPerMinute": 20,
+    "latestMinuteFills": 5000,
+    "returnedMinutes": 60,
+    "selectedMinuteFills": 6180,
+    "description": "Isolated minimal fill table with production numeric types and sequence indexes. Synthetic historical timestamps; no accounting or exchange throughput claims.",
+    "vacuumedBeforeMeasurement": true
+  },
+  "before": {
+    "samples": 5,
+    "latencyMs": {
+      "p50": 28.52,
+      "p95": 31.589
+    },
+    "explain": {
+      "planningMs": 0.088,
+      "executionMs": 29.661,
+      "sharedHitBlocks": 1136,
+      "sharedReadBlocks": 0,
+      "temporaryReadBlocks": 248,
+      "temporaryWrittenBlocks": 277,
+      "fillRowsVisited": 105000,
+      "heapFetches": 0,
+      "indexes": [],
+      "scanTypes": ["Seq Scan"]
+    }
+  },
+  "after": {
+    "samples": 5,
+    "latencyMs": {
+      "p50": 1.852,
+      "p95": 1.999
+    },
+    "explain": {
+      "planningMs": 0.252,
+      "executionMs": 1.435,
+      "sharedHitBlocks": 612,
+      "sharedReadBlocks": 0,
+      "temporaryReadBlocks": 0,
+      "temporaryWrittenBlocks": 0,
+      "fillRowsVisited": 6360,
+      "heapFetches": 0,
+      "indexes": ["fills_by_minute"],
+      "scanTypes": ["Index Only Scan"]
+    }
+  },
+  "storageBytes": {
+    "table": 8871936,
+    "baselineIndexes": 9519104,
+    "addedMinuteIndex": 9052160
+  },
+  "exactCandlesEqual": true,
+  "limits": "Five warm SQL samples and one EXPLAIN per query on one local database. Includes a whole latest-minute burst. Production row width, concurrent writers, cold disks and deployment hardware differ. Fixture was vacuumed before measurement; newly written production pages can require heap fetches."
+}

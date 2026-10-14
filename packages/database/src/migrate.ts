@@ -7,6 +7,7 @@ import { MARKET_ORDERS_SCHEMA } from './market-orders-schema.js';
 import { SESSION_LIFECYCLE_SCHEMA } from './session-lifecycle-schema.js';
 import { COMMAND_TIMESTAMP_SCHEMA } from './command-timestamp-schema.js';
 import { ORDER_INTEGRITY_SCHEMA } from './order-integrity-schema.js';
+import { LARGE_SESSION_SCHEMA } from './large-session-schema.js';
 import type { Database } from './types.js';
 
 const migrations = [
@@ -18,6 +19,7 @@ const migrations = [
   { name: '006_session_lifecycle', statement: SESSION_LIFECYCLE_SCHEMA },
   { name: '007_command_timestamps', statement: COMMAND_TIMESTAMP_SCHEMA },
   { name: '008_order_integrity', statement: ORDER_INTEGRITY_SCHEMA },
+  { name: '009_large_session_reads', statement: LARGE_SESSION_SCHEMA },
 ];
 
 /** Restricted runtime connections inspect versions without owning any DDL privileges. */

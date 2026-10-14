@@ -6,6 +6,7 @@ import type { HttpAdmissionOptions } from '../../apps/server/src/admission.js';
 import { AuthService } from '../../apps/server/src/auth/index.js';
 import { Exchange } from '../../apps/server/src/exchange.js';
 import type { ExchangeOptions } from '../../apps/server/src/types.js';
+import type { HistoryExportsOptions } from '../../apps/server/src/history/prepared-export.js';
 
 export const API_ORIGIN = 'http://localhost:3000';
 export const TEST_PASSWORD = 'simulation-test-password';
@@ -66,6 +67,7 @@ export async function createApiFixture(
   options: {
     admission?: HttpAdmissionOptions;
     live?: LiveOptions;
+    exports?: HistoryExportsOptions;
     hooks?: ExchangeOptions['hooks'];
     database?: ExchangeOptions['database'];
     origin?: string;
@@ -112,6 +114,7 @@ export async function createApiFixture(
       ...(options.proxyHops !== undefined ? { proxyHops: options.proxyHops } : {}),
       ...(options.admission ? { admission: options.admission } : {}),
       ...(options.live ? { live: options.live } : {}),
+      ...(options.exports ? { exports: options.exports } : {}),
     });
     await app.ready();
   }

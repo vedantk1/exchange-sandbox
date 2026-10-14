@@ -58,6 +58,7 @@ try {
     secureCookies,
     logger: true,
     proxyHops,
+    exports: { directory: process.env.HISTORY_EXPORT_DIRECTORY ?? '.local/history-exports' },
   });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {

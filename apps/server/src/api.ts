@@ -25,6 +25,7 @@ import {
 } from './history/index.js';
 import { LiveUpdates, type LiveOptions } from './live.js';
 import { AdmissionError, installHttpAdmission, type HttpAdmissionOptions } from './admission.js';
+import { HistoryExports, type HistoryExportsOptions } from './history/prepared-export.js';
 
 export interface ApiOptions {
   exchange: Exchange;
@@ -35,6 +36,7 @@ export interface ApiOptions {
   logger?: boolean;
   admission?: HttpAdmissionOptions;
   live?: LiveOptions;
+  exports?: HistoryExportsOptions;
   /** One trusted reverse-proxy hop is valid only while the backend port stays private. */
   proxyHops?: 0 | 1;
 }
@@ -78,7 +80,11 @@ export async function buildApi(options: ApiOptions) {
   const { auth, exchange } = options;
   const admin = options.admin ?? new AdminService(exchange);
   const live = new LiveUpdates(exchange, options.live);
-  app.addHook('preClose', async () => live.close());
+  const exports = await HistoryExports.create(exchange, options.exports);
+  app.addHook('preClose', async () => {
+    live.close();
+    await exports.close();
+  });
   await app.register(cookie);
   await app.register(rateLimit, { max: 600, timeWindow: '1 minute' });
   await app.register(swagger, {
@@ -364,6 +370,37 @@ export async function buildApi(options: ApiOptions) {
     },
     async (request) =>
       historyExport(exchange, token(request), request.params.sessionId, request.query.accountId),
+  );
+  app.post(
+    '/api/history/:sessionId/exports',
+    {
+      preHandler: protect(),
+      schema: {
+        security,
+        params: S.SessionParam,
+        body: S.PrepareHistoryExportBody,
+        response: { 200: S.PreparedHistoryExport, ...errors },
+      },
+    },
+    async (request, reply) => {
+      // Preparation has its own SQL deadline; override the ordinary socket idle timeout.
+      reply.raw.socket?.setTimeout?.(45_000);
+      return exports.prepare(
+        token(request),
+        request.params.sessionId,
+        request.body.accountId,
+        admission.requestSignal(request),
+      );
+    },
+  );
+  app.get(
+    '/api/history/exports/:exportId/files/:fileName',
+    {
+      preHandler: protect(),
+      schema: { security, params: S.HistoryExportFileParam, response: { ...errors } },
+    },
+    async (request, reply) =>
+      exports.download(reply, token(request), request.params.exportId, request.params.fileName),
   );
   app.get(
     '/api/admin/accounts/search',

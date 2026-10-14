@@ -1,0 +1,283 @@
+{
+  "generatedAt": "2026-10-14T16:37:23.706Z",
+  "kind": "large-session-http-benchmark",
+  "environment": {
+    "node": "v24.19.0",
+    "postgres": "18.4",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "cpuModel": "Apple M1 Pro",
+    "logicalCpus": 10,
+    "memoryGiB": 16
+  },
+  "workload": {
+    "seedPairs": 10001,
+    "seedOrders": 20002,
+    "seedElapsedMs": 112423.43,
+    "quantity": "0.0001 BTC-SIM",
+    "price": "10000 USD-SIM",
+    "measuredPairs": 100,
+    "historyPages": 30,
+    "workspaceChartRequests": 30,
+    "liveClients": 2,
+    "exportScopes": ["ADMIN_SESSION", "TRADER_ACCOUNT"],
+    "note": "Unmeasured seed uses real core commands and a paused administrator inventory grant, then closes its writer. A separate Node.js API process in development mode owns the guard during the measured phase: real loopback HTTP, cookie authentication, CSRF, default admission/rate limits, default 1-second SSE polling, and streaming downloads. All financial timestamps use real PostgreSQL time."
+  },
+  "elapsedMs": 3803.67,
+  "requests": 275,
+  "requestsPerSecond": 72.3,
+  "operations": [
+    {
+      "operation": "order",
+      "requests": 200,
+      "latencyMs": {
+        "p50": 11.684,
+        "p95": 57.998,
+        "p99": 78.687
+      },
+      "errors": 0,
+      "timeouts": 0
+    },
+    {
+      "operation": "workspace-chart",
+      "requests": 30,
+      "latencyMs": {
+        "p50": 36.589,
+        "p95": 73.591,
+        "p99": 87.145
+      },
+      "errors": 0,
+      "timeouts": 0
+    },
+    {
+      "operation": "history-page",
+      "requests": 30,
+      "latencyMs": {
+        "p50": 22.248,
+        "p95": 53.298,
+        "p99": 53.749
+      },
+      "errors": 0,
+      "timeouts": 0
+    },
+    {
+      "operation": "export-prepare",
+      "requests": 2,
+      "latencyMs": {
+        "p50": 1173.215,
+        "p95": 1603.835,
+        "p99": 1603.835
+      },
+      "errors": 0,
+      "timeouts": 0
+    },
+    {
+      "operation": "export-download",
+      "requests": 13,
+      "latencyMs": {
+        "p50": 18.569,
+        "p95": 170.8,
+        "p99": 170.8
+      },
+      "errors": 0,
+      "timeouts": 0
+    }
+  ],
+  "memory": {
+    "scope": "API server and workload driver are separate Node.js processes. PostgreSQL, OS cache, and browser memory are excluded. Warm authentication memory remains part of the API baseline.",
+    "server": {
+      "samplingIntervalMs": 50,
+      "baselineRssMiB": 333.78,
+      "peakRssMiB": 479.06,
+      "baselineHeapUsedMiB": 30.34,
+      "peakHeapUsedMiB": 154.65
+    },
+    "driver": {
+      "samplingIntervalMs": 50,
+      "baselineRssMiB": 202.16,
+      "peakRssMiB": 214.16,
+      "baselineHeapUsedMiB": 17.32,
+      "peakHeapUsedMiB": 81.03
+    }
+  },
+  "live": [
+    {
+      "frames": 5,
+      "invalidations": 4,
+      "measuredCommitsObserved": 200,
+      "requestToNotificationMs": {
+        "p50": 542.727,
+        "p95": 975.519
+      },
+      "acknowledgementToNotificationMs": {
+        "p50": 519,
+        "p95": 954.768
+      },
+      "finalCursorCaughtUp": true
+    },
+    {
+      "frames": 5,
+      "invalidations": 4,
+      "measuredCommitsObserved": 200,
+      "requestToNotificationMs": {
+        "p50": 542.809,
+        "p95": 975.45
+      },
+      "acknowledgementToNotificationMs": {
+        "p50": 518.931,
+        "p95": 954.85
+      },
+      "finalCursorCaughtUp": true
+    }
+  ],
+  "exports": [
+    {
+      "scope": "TRADER_ACCOUNT",
+      "files": [
+        {
+          "name": "manifest.csv",
+          "rows": 1,
+          "bytes": 244
+        },
+        {
+          "name": "orders.csv",
+          "rows": 10001,
+          "bytes": 2464891
+        },
+        {
+          "name": "fills.csv",
+          "rows": 10001,
+          "bytes": 1804743
+        },
+        {
+          "name": "activity.csv",
+          "rows": 40007,
+          "bytes": 4965969
+        },
+        {
+          "name": "commands.csv",
+          "rows": 10001,
+          "bytes": 1274651
+        },
+        {
+          "name": "balances.csv",
+          "rows": 2,
+          "bytes": 231
+        }
+      ]
+    },
+    {
+      "scope": "ADMIN_SESSION",
+      "files": [
+        {
+          "name": "manifest.csv",
+          "rows": 1,
+          "bytes": 217
+        },
+        {
+          "name": "orders.csv",
+          "rows": 20002,
+          "bytes": 4969603
+        },
+        {
+          "name": "fills.csv",
+          "rows": 10001,
+          "bytes": 3745022
+        },
+        {
+          "name": "activity.csv",
+          "rows": 90019,
+          "bytes": 14552024
+        },
+        {
+          "name": "commands.csv",
+          "rows": 20008,
+          "bytes": 3330076
+        },
+        {
+          "name": "balances.csv",
+          "rows": 8,
+          "bytes": 762
+        },
+        {
+          "name": "audit.csv",
+          "rows": 7,
+          "bytes": 3381
+        }
+      ]
+    }
+  ],
+  "records": {
+    "orders": 20202,
+    "fills": 10101,
+    "activity": 90919
+  },
+  "exportEvidence": {
+    "independentSnapshotRowCounts": true,
+    "independentJournalPrefixBalances": true,
+    "streamedByteCountsAndHashes": true
+  },
+  "reconciliation": true,
+  "restartReceiptReplay": true,
+  "candleQuery": {
+    "kind": "historical-candle-query-comparison",
+    "postgres": "18.4",
+    "fixture": {
+      "synthetic": true,
+      "vacuumedBeforeMeasurement": true,
+      "totalFills": 105000,
+      "populatedMinutes": 5001,
+      "oldFillsPerMinute": 20,
+      "latestMinuteFills": 5000,
+      "returnedMinutes": 60,
+      "selectedMinuteFills": 6180,
+      "description": "Isolated minimal fill table with production numeric types and sequence indexes. Synthetic historical timestamps; no accounting or exchange throughput claims."
+    },
+    "before": {
+      "samples": 5,
+      "latencyMs": {
+        "p50": 25.695,
+        "p95": 27.173
+      },
+      "explain": {
+        "planningMs": 0.087,
+        "executionMs": 26.256,
+        "sharedHitBlocks": 1136,
+        "sharedReadBlocks": 0,
+        "temporaryReadBlocks": 248,
+        "temporaryWrittenBlocks": 277,
+        "fillRowsVisited": 105000,
+        "heapFetches": 0,
+        "indexes": [],
+        "scanTypes": ["Seq Scan"]
+      }
+    },
+    "after": {
+      "samples": 5,
+      "latencyMs": {
+        "p50": 1.613,
+        "p95": 1.929
+      },
+      "explain": {
+        "planningMs": 0.195,
+        "executionMs": 1.401,
+        "sharedHitBlocks": 612,
+        "sharedReadBlocks": 0,
+        "temporaryReadBlocks": 0,
+        "temporaryWrittenBlocks": 0,
+        "fillRowsVisited": 6360,
+        "heapFetches": 0,
+        "indexes": ["fills_by_minute"],
+        "scanTypes": ["Index Only Scan"]
+      }
+    },
+    "storageBytes": {
+      "table": 8871936,
+      "baselineIndexes": 9519104,
+      "addedMinuteIndex": 9052160
+    },
+    "exactCandlesEqual": true,
+    "limits": "Five warm SQL samples and one EXPLAIN per query on one local database. Fixture vacuumed before measurement; fresh production fills may require heap fetches. Includes a whole latest-minute burst. Production row width, concurrent writers, cold disks and deployment hardware differ."
+  },
+  "limits": "A bounded closed-loop local workload, not a saturation or deployment-capacity claim. TLS, remote-network latency, password-hashing concurrency, PostgreSQL memory, sustained load, and browser rendering are not measured. Export latency includes preparation and separate immutable-file transfers. Candle EXPLAIN evidence uses a separately disclosed synthetic historical fixture, not altered trading evidence."
+}

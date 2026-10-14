@@ -44,6 +44,7 @@ export async function api<T>(
   body?: Record<string, unknown>,
   signal?: AbortSignal,
   actorId?: string,
+  timeoutMs = 20_000,
 ): Promise<T> {
   const response = await fetch(path, {
     method: body === undefined ? 'GET' : 'POST',
@@ -57,8 +58,8 @@ export async function api<T>(
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(20_000)])
-      : AbortSignal.timeout(20_000),
+      ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+      : AbortSignal.timeout(timeoutMs),
   });
   const result = await response.json();
   if (!response.ok)
