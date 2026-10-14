@@ -423,6 +423,10 @@ textarea {
   padding: 80px 24px;
   text-align: center;
 }
+.workspace-recovery {
+  max-width: 680px;
+  margin-inline: auto;
+}
 .empty-state {
   padding: 32px 20px;
   color: #b3c1ce;

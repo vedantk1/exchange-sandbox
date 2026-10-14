@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { commandTimestamp } from './command-time.js';
 import type { Database } from '@sandbox/database';
 import type { Transaction } from 'kysely';
 import { postJournal, transferHold } from './ledger.js';
@@ -106,7 +107,7 @@ export async function cancelOrder(
       status: 'CANCELED',
       reserved_amount: '0',
       cancel_reason: input.reason,
-      updated_at: new Date(),
+      updated_at: commandTimestamp,
     })
     .where('id', '=', order.id)
     .returningAll()

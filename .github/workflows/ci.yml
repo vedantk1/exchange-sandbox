@@ -48,6 +48,8 @@ jobs:
           docker build --target api -t spot-exchange-simulator-api:ci .
           docker build --target web -t spot-exchange-simulator-web:ci .
           docker build --target operations -t spot-exchange-simulator-operations:ci .
+      - name: Verify deployment asset routing over trusted HTTPS
+        run: pnpm exec tsx scripts/deploy/verify-assets.ts spot-exchange-simulator-web:ci
       - name: Verify a fresh database restore with PostgreSQL 18 tools
         run: |
           mkdir -p .local/operations

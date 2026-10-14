@@ -3,10 +3,10 @@ import { AuthService } from './auth/index.js';
 import { Exchange, WriterUnavailableError } from './exchange.js';
 import { DemoMarket } from './demo-market/service.js';
 import { configuredDatabaseUrl } from './config/database-url.js';
+import { createShutdown } from './shutdown.js';
 
 let exchange: Exchange | undefined;
 let app: Awaited<ReturnType<typeof buildApi>> | undefined;
-let shutdown: Promise<void> | undefined;
 let simulator: DemoMarket | undefined;
 
 function safeCode(error: unknown): string {
@@ -14,20 +14,18 @@ function safeCode(error: unknown): string {
   return typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'STARTUP_FAILED';
 }
 
-async function close(): Promise<void> {
-  shutdown ??= (async () => {
-    try {
-      await simulator?.close();
-    } finally {
-      try {
-        await app?.close();
-      } finally {
-        await exchange?.close();
-      }
-    }
-  })();
-  return shutdown;
-}
+const close = createShutdown({
+  stopSimulator: async () => simulator?.close(),
+  closeHttp: async () => app?.close(),
+  closeExchange: async () => exchange?.close(),
+  terminate: () => {
+    console.error('Server shutdown could not finish safely; restart to resolve original commands.');
+    // Do not release the guard separately while an old backend might still be
+    // executing. Process exit closes all sockets; startup fencing/reconciliation
+    // then resolves any commit whose reply was lost.
+    process.exit(1);
+  },
+});
 
 try {
   const databaseUrl = await configuredDatabaseUrl();

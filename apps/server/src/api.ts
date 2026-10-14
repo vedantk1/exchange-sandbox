@@ -5,6 +5,7 @@ import swagger from '@fastify/swagger';
 import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import * as S from '@sandbox/contracts';
 import { DomainError } from '@sandbox/domain';
+import { DatabaseTimeoutError } from '@sandbox/database';
 import { AdminService } from './admin/index.js';
 import { AuthError, AuthService, requirePrincipal, type LoginResult } from './auth/index.js';
 import {
@@ -138,10 +139,20 @@ export async function buildApi(options: ApiOptions) {
         message: 'Trading is unavailable; inspect the administrator status.',
       });
     const detail = error as { statusCode?: number; validation?: unknown; code?: string };
+    if (
+      error instanceof DatabaseTimeoutError ||
+      ['57014', '25P03', '25P04'].includes(detail.code ?? '')
+    )
+      return reply.code(503).send({
+        code: 'DATABASE_TIMEOUT',
+        message:
+          'Database work exceeded its resource budget. Resolve an uncertain command by its original identity before retrying.',
+      });
     if (detail.code === '55P03')
       return reply.code(503).send({
         code: 'ADMISSION_BUSY',
-        message: 'The command lock is busy. Resolve or retry the original command identity.',
+        message:
+          'A database lock is busy. Retry reads; resolve an uncertain command by its original identity.',
       });
     if (detail.validation)
       return reply

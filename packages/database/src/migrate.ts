@@ -5,6 +5,7 @@ import { DEMO_MARKET_SCHEMA } from './demo-market-schema.js';
 import { SIMULATOR_CONTROLS_SCHEMA } from './simulator-controls-schema.js';
 import { MARKET_ORDERS_SCHEMA } from './market-orders-schema.js';
 import { SESSION_LIFECYCLE_SCHEMA } from './session-lifecycle-schema.js';
+import { COMMAND_TIMESTAMP_SCHEMA } from './command-timestamp-schema.js';
 import type { Database } from './types.js';
 
 const migrations = [
@@ -14,6 +15,7 @@ const migrations = [
   { name: '004_simulator_controls', statement: SIMULATOR_CONTROLS_SCHEMA },
   { name: '005_market_orders', statement: MARKET_ORDERS_SCHEMA },
   { name: '006_session_lifecycle', statement: SESSION_LIFECYCLE_SCHEMA },
+  { name: '007_command_timestamps', statement: COMMAND_TIMESTAMP_SCHEMA },
 ];
 
 /** Restricted runtime connections inspect versions without owning any DDL privileges. */

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { commandTimestamp } from './command-time.js';
 import type { Database } from '@sandbox/database';
 import { sql, type Selectable, type Transaction } from 'kysely';
 import { requirePrincipal } from './auth/access.js';
@@ -151,7 +152,7 @@ export async function rolloverSession(
           generation: (BigInt(simulator.generation) + 1n).toString(),
           plan: '[]',
           next_command: 0,
-          updated_at: new Date(),
+          updated_at: commandTimestamp,
         })
         .where('session_id', '=', input.sessionId)
         .execute();
@@ -255,7 +256,7 @@ async function completeRollover(exchange: Exchange, operationId: string): Promis
           status: 'STOPPED',
           plan: '[]',
           next_command: 0,
-          updated_at: new Date(),
+          updated_at: commandTimestamp,
         })
         .where('session_id', '=', operation.previous_session_id)
         .execute();
@@ -267,9 +268,9 @@ async function completeRollover(exchange: Exchange, operationId: string): Promis
       .execute();
     await tx
       .updateTable('exchange_sessions')
-      // Both sides share this transaction timestamp; archived metadata must
+      // Both sides share the admitted command timestamp; archived metadata must
       // not suggest that two sessions overlapped while cancellation ran.
-      .set({ state: 'CLOSED', closed_at: sql<Date>`CURRENT_TIMESTAMP` })
+      .set({ state: 'CLOSED', closed_at: commandTimestamp })
       .where('id', '=', operation.previous_session_id)
       .execute();
     await tx
@@ -330,7 +331,7 @@ async function completeRollover(exchange: Exchange, operationId: string): Promis
       .execute();
     await tx
       .updateTable('session_rollovers')
-      .set({ state: 'COMPLETED', completed_at: sql<Date>`clock_timestamp()` })
+      .set({ state: 'COMPLETED', completed_at: commandTimestamp })
       .where('id', '=', operation.id)
       .execute();
     const sequence = await nextSequence(tx, control);

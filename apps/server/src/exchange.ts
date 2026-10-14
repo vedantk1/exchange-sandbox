@@ -1,5 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createDatabase, migrate, verifyMigrations, type Database } from '@sandbox/database';
+import {
+  createDatabase,
+  migrate,
+  verifyMigrations,
+  withDatabaseBudget,
+  DatabaseTimeoutError,
+  type Database,
+  type DatabaseBudgetKind,
+} from '@sandbox/database';
 import type { MarketPreviewView } from '@sandbox/contracts';
 import {
   assertOrderSubmission,
@@ -19,7 +27,7 @@ import {
   type BookOrder,
 } from '@sandbox/domain';
 import { sql, type Kysely, type Selectable, type Transaction } from 'kysely';
-import { Client } from 'pg';
+import { Client, type QueryResult } from 'pg';
 import { CommandConflictError, RecoveryError, WriterUnavailableError } from './errors.js';
 import { postJournal, transferHold, type Posting } from './ledger.js';
 import { reconcileDatabase } from './reconcile.js';
@@ -39,6 +47,7 @@ import { requirePrincipal } from './auth/access.js';
 import { AuthError } from './auth/errors.js';
 import { admitRequest, checkPendingAdmission, COMMAND_LOCK_TIMEOUT_MS } from './admission.js';
 import { recoverSessionRollover, requireNoRollover } from './session-lifecycle.js';
+import { captureCommandTimestamp, commandTimestamp } from './command-time.js';
 
 export type * from './types.js';
 export { CommandConflictError, RecoveryError, WriterUnavailableError } from './errors.js';
@@ -76,6 +85,7 @@ export class Exchange {
   private epoch = '';
   private available = true;
   private closed = false;
+  private closing: Promise<void> | undefined;
   private runtimeFault: string | null = null;
   private faultRevision = 0;
 
@@ -94,37 +104,60 @@ export class Exchange {
 
   static async open(databaseUrl: string, options: ExchangeOptions = {}): Promise<Exchange> {
     const db = createDatabase(databaseUrl, {
+      ...options.database,
       onError: () => {
         exchange.available = false;
       },
     });
-    const guard = new Client({ connectionString: databaseUrl, connectionTimeoutMillis: 5_000 });
+    const guard = new Client({
+      connectionString: databaseUrl,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 3_000,
+      lock_timeout: 2_000,
+      keepAlive: true,
+    });
     const exchange = new Exchange(db, guard, options);
     try {
       await guard.connect();
-      const lock = await guard.query<{ acquired: boolean }>(
-        'SELECT pg_try_advisory_lock($1) AS acquired',
-        [WRITER_LOCK],
-      );
+      let expired = false;
+      const guardDeadline = setTimeout(() => {
+        expired = true;
+        void guard.end().catch(() => undefined);
+        guard.connection.stream.destroy();
+      }, 5_000);
+      let lock: QueryResult<{ acquired: boolean }>;
+      try {
+        lock = await guard.query<{ acquired: boolean }>(
+          'SELECT pg_try_advisory_lock($1) AS acquired',
+          [WRITER_LOCK],
+        );
+      } catch (error) {
+        if (expired) throw new DatabaseTimeoutError('maintenance');
+        throw error;
+      } finally {
+        clearTimeout(guardDeadline);
+      }
       if (!lock.rows[0]?.acquired) throw new WriterUnavailableError();
-      if (options.migrations === 'verify') await verifyMigrations(db);
-      else await migrate(db);
-      const fault = await db.transaction().execute(async (tx) => {
-        const control = await tx
-          .selectFrom('exchange_control')
-          .selectAll()
-          .where('id', '=', 1)
-          .forUpdate()
-          .executeTakeFirstOrThrow();
-        exchange.epoch = (BigInt(control.writer_epoch) + 1n).toString();
-        const report = await reconcileDatabase(tx);
-        const fault = control.fault ?? (report.ok ? null : report.issues.join('; '));
-        await tx
-          .updateTable('exchange_control')
-          .set({ writer_epoch: exchange.epoch, fault })
-          .where('id', '=', 1)
-          .execute();
-        return fault;
+      const fault = await withDatabaseBudget(db, 'maintenance', async () => {
+        if (options.migrations === 'verify') await verifyMigrations(db);
+        else await migrate(db);
+        return db.transaction().execute(async (tx) => {
+          const control = await tx
+            .selectFrom('exchange_control')
+            .selectAll()
+            .where('id', '=', 1)
+            .forUpdate()
+            .executeTakeFirstOrThrow();
+          exchange.epoch = (BigInt(control.writer_epoch) + 1n).toString();
+          const report = await reconcileDatabase(tx);
+          const fault = control.fault ?? (report.ok ? null : report.issues.join('; '));
+          await tx
+            .updateTable('exchange_control')
+            .set({ writer_epoch: exchange.epoch, fault })
+            .where('id', '=', 1)
+            .execute();
+          return fault;
+        });
       });
       if (fault && !options.allowFaultedStartup) throw new RecoveryError(fault);
       if (!fault) await recoverSessionRollover(exchange);
@@ -136,15 +169,21 @@ export class Exchange {
   }
 
   async close(): Promise<void> {
-    if (this.closed) return;
+    if (this.closing) return this.closing;
     this.closed = true;
     this.available = false;
-    // Finish outstanding database transactions before releasing writer ownership.
-    try {
+    this.closing = (async () => {
+      // Drain or forcibly discard every old transport before releasing writer
+      // ownership. An expired callback can no longer send a late COMMIT.
       await this.db.destroy();
-    } finally {
-      await this.guard.end();
-    }
+      const timeout = setTimeout(() => this.guard.connection.stream.destroy(), 5_000);
+      try {
+        await this.guard.end();
+      } finally {
+        clearTimeout(timeout);
+      }
+    })();
+    return this.closing;
   }
 
   private assertWriter(): void {
@@ -168,6 +207,7 @@ export class Exchange {
     const fault = this.runtimeFault ?? control.fault;
     if (fault && !permitFault) throw new RecoveryError(fault);
     admitRequest();
+    await captureCommandTimestamp(tx);
     return { ...control, fault };
   }
 
@@ -175,27 +215,31 @@ export class Exchange {
   async accessTransaction<T>(
     work: (tx: Transaction<Database>, control: Control) => Promise<T>,
   ): Promise<T> {
-    return this.db.transaction().execute(async (tx) => {
-      const control = await this.lock(tx, true);
-      const result = await work(tx, control);
-      this.assertWriter();
-      return result;
-    });
+    return withDatabaseBudget(this.db, 'command', () =>
+      this.db.transaction().execute(async (tx) => {
+        const control = await this.lock(tx, true);
+        const result = await work(tx, control);
+        this.assertWriter();
+        return result;
+      }),
+    );
   }
 
   async readTransaction<T>(work: (tx: Transaction<Database>) => Promise<T>): Promise<T> {
-    return this.db
-      .transaction()
-      .setIsolationLevel('repeatable read')
-      .setAccessMode('read only')
-      .execute(work);
+    return withDatabaseBudget(this.db, 'read', () =>
+      this.db
+        .transaction()
+        .setIsolationLevel('repeatable read')
+        .setAccessMode('read only')
+        .execute(work),
+    );
   }
 
   /** Only recovery/admin modules may use this; callers must reconcile before clearing a fault. */
   async recoveryTransaction<T>(
     work: (tx: Transaction<Database>, control: Control) => Promise<T>,
   ): Promise<T> {
-    return this.financialTransaction(work, undefined, true);
+    return this.financialTransaction(work, undefined, true, 'maintenance');
   }
 
   getRuntimeFault(): string | null {
@@ -228,53 +272,58 @@ export class Exchange {
     execute: (tx: Transaction<Database>, control: Control) => Promise<T>,
     onFault?: (tx: Transaction<Database>, control: Control) => Promise<T>,
     permitFault = false,
+    budget: DatabaseBudgetKind = 'command',
   ): Promise<T> {
     let failed = false;
     let result: T | undefined;
     try {
-      result = await this.db.transaction().execute(async (tx) => {
-        const control = await this.lock(tx, permitFault);
-        await sql`SAVEPOINT financial_effects`.execute(tx);
-        try {
-          const value = await execute(tx, control);
-          await sql`SET CONSTRAINTS ALL IMMEDIATE`.execute(tx);
-          this.assertWriter();
-          return value;
-        } catch (error) {
-          if (
-            !(error instanceof RecoveryError) &&
-            (error as { code?: string })?.code !== '23514' &&
-            !(error instanceof DomainError && error.code === 'INVALID_BOOK')
-          )
-            throw error;
-          failed = true;
-          this.faultRevision += 1;
-          this.runtimeFault = 'Financial invariant failed; inspect journal and projections.';
-          // Keep the installation row lock while rolling back financial work.
-          // Queued commands cannot pass between the failed trade and its halt.
-          await sql`ROLLBACK TO SAVEPOINT financial_effects`.execute(tx);
-          await tx
-            .updateTable('exchange_control')
-            .set({ fault: this.runtimeFault })
-            .where('id', '=', 1)
-            .execute();
-          return onFault ? await onFault(tx, control) : undefined;
-        }
-      });
+      result = await withDatabaseBudget(this.db, budget, () =>
+        this.db.transaction().execute(async (tx) => {
+          const control = await this.lock(tx, permitFault);
+          await sql`SAVEPOINT financial_effects`.execute(tx);
+          try {
+            const value = await execute(tx, control);
+            await sql`SET CONSTRAINTS ALL IMMEDIATE`.execute(tx);
+            this.assertWriter();
+            return value;
+          } catch (error) {
+            if (
+              !(error instanceof RecoveryError) &&
+              (error as { code?: string })?.code !== '23514' &&
+              !(error instanceof DomainError && error.code === 'INVALID_BOOK')
+            )
+              throw error;
+            failed = true;
+            this.faultRevision += 1;
+            this.runtimeFault = 'Financial invariant failed; inspect journal and projections.';
+            // Keep the installation row lock while rolling back financial work.
+            // Queued commands cannot pass between the failed trade and its halt.
+            await sql`ROLLBACK TO SAVEPOINT financial_effects`.execute(tx);
+            await tx
+              .updateTable('exchange_control')
+              .set({ fault: this.runtimeFault })
+              .where('id', '=', 1)
+              .execute();
+            return onFault ? await onFault(tx, control) : undefined;
+          }
+        }),
+      );
     } catch (error) {
       if (failed) {
         // If the original connection cannot commit the halt, keep the local
         // gate latched and attempt a separate fenced transaction. Never resume
         // merely because recording the diagnostic also failed.
         try {
-          await this.db.transaction().execute(async (tx) => {
-            await this.lock(tx, true);
-            await tx
-              .updateTable('exchange_control')
-              .set({ fault: this.runtimeFault })
-              .where('id', '=', 1)
-              .execute();
-          });
+          await withDatabaseBudget(this.db, 'command', () =>
+            this.db.transaction().execute(async (tx) => {
+              await this.lock(tx, true);
+              await tx
+                .updateTable('exchange_control')
+                .set({ fault: this.runtimeFault })
+                .where('id', '=', 1)
+                .execute();
+            }),
+          );
         } catch {
           /* The local gate remains latched until the process is closed. */
         }
@@ -849,7 +898,7 @@ export class Exchange {
           remaining_quantity: maker.remaining.toString(),
           status: maker.status,
           reserved_amount: held(maker).toString(),
-          updated_at: new Date(),
+          updated_at: commandTimestamp,
         })
         .where('id', '=', maker.id)
         .execute();
@@ -863,7 +912,7 @@ export class Exchange {
         status: match.incoming.status,
         reserved_amount: (canceled ? 0n : held(match.incoming)).toString(),
         cancel_reason: match.incoming.cancelReason,
-        updated_at: new Date(),
+        updated_at: commandTimestamp,
       })
       .where('id', '=', incoming.id)
       .returningAll()
@@ -925,7 +974,7 @@ export class Exchange {
             status: 'CANCELED',
             reserved_amount: '0',
             cancel_reason: 'USER_REQUEST',
-            updated_at: new Date(),
+            updated_at: commandTimestamp,
           })
           .where('id', '=', order.id)
           .returningAll()
@@ -940,12 +989,14 @@ export class Exchange {
   async getReceipt(accountId: string, commandId: string): Promise<CommandResult | null> {
     uuid(accountId);
     uuid(commandId);
-    const row = await this.db
-      .selectFrom('receipts')
-      .select('result')
-      .where('actor_id', '=', accountId)
-      .where('command_id', '=', commandId)
-      .executeTakeFirst();
+    const row = await withDatabaseBudget(this.db, 'read', () =>
+      this.db
+        .selectFrom('receipts')
+        .select('result')
+        .where('actor_id', '=', accountId)
+        .where('command_id', '=', commandId)
+        .executeTakeFirst(),
+    );
     // Developer allocation receipts have a separate result shape. This query
     // resolves trading commands only; callers retry createTrader for setup.
     if (!row || !('status' in row.result)) return null;
@@ -959,93 +1010,92 @@ export class Exchange {
   ): Promise<Snapshot> {
     uuid(accountId);
     // A consistent read transaction avoids mixing balances and orders from two commits.
-    return this.db
-      .transaction()
-      .setIsolationLevel('repeatable read')
-      .execute(async (tx) => {
-        if (accessToken !== undefined) {
-          const actor = await requirePrincipal(tx, accessToken);
-          if (actor.role !== 'ADMIN' && actor.accountId !== accountId)
-            throw new AuthError('FORBIDDEN', 'Private account access is restricted.', 403);
-        }
-        const control = await tx
-          .selectFrom('exchange_control')
-          .selectAll()
-          .where('id', '=', 1)
-          .executeTakeFirstOrThrow();
-        if (!control.active_session_id)
-          throw new DomainError('NOT_BOOTSTRAPPED', 'Bootstrap the local exchange first.');
-        const sessionId = control.active_session_id;
-        const rows = await tx
-          .selectFrom('balances')
-          .selectAll()
-          .where('session_id', '=', sessionId)
-          .where('account_id', '=', accountId)
-          .execute();
-        const balance = (asset: 'BTC-SIM' | 'USD-SIM') => {
-          const available = BigInt(
-            rows.find((r) => r.asset === asset && r.bucket === 'AVAILABLE')?.amount ?? '0',
-          );
-          const reserved = BigInt(
-            rows.find((r) => r.asset === asset && r.bucket === 'RESERVED')?.amount ?? '0',
-          );
-          const format = asset === 'BTC-SIM' ? formatQuantity : formatQuote;
-          return {
-            available: format(available),
-            reserved: format(reserved),
-            total: format(available + reserved),
-          };
-        };
-        const orders = await tx
-          .selectFrom('orders')
-          .selectAll()
-          .where('session_id', '=', sessionId)
-          .where('account_id', '=', accountId)
-          .orderBy('acceptance_sequence', historyLimit ? 'desc' : 'asc')
-          .$if(historyLimit !== undefined, (query) => query.limit(historyLimit!))
-          .execute();
-        const fills = await tx
-          .selectFrom('fills')
-          .selectAll()
-          .where('session_id', '=', sessionId)
-          .where((eb) =>
-            eb.or([
-              eb(
-                'buy_order_id',
-                'in',
-                tx.selectFrom('orders').select('id').where('account_id', '=', accountId),
-              ),
-              eb(
-                'sell_order_id',
-                'in',
-                tx.selectFrom('orders').select('id').where('account_id', '=', accountId),
-              ),
-            ]),
-          )
-          .orderBy('sequence', historyLimit ? 'desc' : 'asc')
-          .orderBy('fill_index', historyLimit ? 'desc' : 'asc')
-          .$if(historyLimit !== undefined, (query) => query.limit(historyLimit!))
-          .execute();
+    return this.readTransaction(async (tx) => {
+      if (accessToken !== undefined) {
+        const actor = await requirePrincipal(tx, accessToken);
+        if (actor.role !== 'ADMIN' && actor.accountId !== accountId)
+          throw new AuthError('FORBIDDEN', 'Private account access is restricted.', 403);
+      }
+      const control = await tx
+        .selectFrom('exchange_control')
+        .selectAll()
+        .where('id', '=', 1)
+        .executeTakeFirstOrThrow();
+      if (!control.active_session_id)
+        throw new DomainError('NOT_BOOTSTRAPPED', 'Bootstrap the local exchange first.');
+      const sessionId = control.active_session_id;
+      const rows = await tx
+        .selectFrom('balances')
+        .selectAll()
+        .where('session_id', '=', sessionId)
+        .where('account_id', '=', accountId)
+        .execute();
+      const balance = (asset: 'BTC-SIM' | 'USD-SIM') => {
+        const available = BigInt(
+          rows.find((r) => r.asset === asset && r.bucket === 'AVAILABLE')?.amount ?? '0',
+        );
+        const reserved = BigInt(
+          rows.find((r) => r.asset === asset && r.bucket === 'RESERVED')?.amount ?? '0',
+        );
+        const format = asset === 'BTC-SIM' ? formatQuantity : formatQuote;
         return {
-          sessionId,
-          balances: { 'BTC-SIM': balance('BTC-SIM'), 'USD-SIM': balance('USD-SIM') },
-          orders: (historyLimit ? orders.reverse() : orders).map(orderView),
-          fills: (historyLimit ? fills.reverse() : fills).map(fillView),
+          available: format(available),
+          reserved: format(reserved),
+          total: format(available + reserved),
         };
-      });
+      };
+      const orders = await tx
+        .selectFrom('orders')
+        .selectAll()
+        .where('session_id', '=', sessionId)
+        .where('account_id', '=', accountId)
+        .orderBy('acceptance_sequence', historyLimit ? 'desc' : 'asc')
+        .$if(historyLimit !== undefined, (query) => query.limit(historyLimit!))
+        .execute();
+      const fills = await tx
+        .selectFrom('fills')
+        .selectAll()
+        .where('session_id', '=', sessionId)
+        .where((eb) =>
+          eb.or([
+            eb(
+              'buy_order_id',
+              'in',
+              tx.selectFrom('orders').select('id').where('account_id', '=', accountId),
+            ),
+            eb(
+              'sell_order_id',
+              'in',
+              tx.selectFrom('orders').select('id').where('account_id', '=', accountId),
+            ),
+          ]),
+        )
+        .orderBy('sequence', historyLimit ? 'desc' : 'asc')
+        .orderBy('fill_index', historyLimit ? 'desc' : 'asc')
+        .$if(historyLimit !== undefined, (query) => query.limit(historyLimit!))
+        .execute();
+      return {
+        sessionId,
+        balances: { 'BTC-SIM': balance('BTC-SIM'), 'USD-SIM': balance('USD-SIM') },
+        orders: (historyLimit ? orders.reverse() : orders).map(orderView),
+        fills: (historyLimit ? fills.reverse() : fills).map(fillView),
+      };
+    });
   }
 
   async reconcile(): Promise<{ ok: boolean; issues: string[] }> {
-    return this.db.transaction().execute(async (tx) => {
-      await this.lock(tx, true);
-      const report = await reconcileDatabase(tx);
-      if (!report.ok)
-        await tx
-          .updateTable('exchange_control')
-          .set({ fault: report.issues.join('; ') })
-          .where('id', '=', 1)
-          .execute();
-      return report;
-    });
+    return withDatabaseBudget(this.db, 'maintenance', () =>
+      this.db.transaction().execute(async (tx) => {
+        await this.lock(tx, true);
+        const report = await reconcileDatabase(tx);
+        if (!report.ok)
+          await tx
+            .updateTable('exchange_control')
+            .set({ fault: report.issues.join('; ') })
+            .where('id', '=', 1)
+            .execute();
+        return report;
+      }),
+    );
   }
 }

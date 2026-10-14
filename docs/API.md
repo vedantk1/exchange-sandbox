@@ -36,6 +36,8 @@ An admitted command completes its transaction even if the client then disconnect
 
 `ADMISSION_BUSY`, `ADMISSION_EXPIRED`, and `REQUEST_ABORTED` are transient admission failures. The socket/request timeouts are transport controls, not instructions to reverse a committed command. Password work also has a separate bounded concurrency limit; overloaded hashing returns `AUTH_BUSY`.
 
+Database work also has statement and total budgets: reads 3/5 seconds, ordinary commands 10/15 seconds, and maintenance 60/120 seconds. The total includes connection acquisition and asynchronous transaction callbacks. `DATABASE_TIMEOUT` returns 503 for an exhausted budget; it is recoverable and does not itself indicate accounting corruption. An expired transport is discarded, and late callbacks cannot write through it. A timeout around commit can still hide a committed result: resolve the original receipt or retry the identical payload, never replace its identity. See [database budgets and shutdown](ARCHITECTURE.md#database-budgets-and-shutdown).
+
 ## Operator behavior
 
 The first HTTP installation starts paused. A pause blocks new orders and fills while allowing cancellation and reads. Resume is explicit and requires a reason. Grants issue positive simulated funds through the journal, require a paused healthy market, and are idempotent. They never edit balances directly.
@@ -165,6 +167,10 @@ Exports return `{sessionId, accountId, asOf, cursor, files:[{name,content}]}` fr
 Every bundle includes documented decimal strings, a recorded boundary, and simulation labels in its manifest. Files are fully generated before delivery. The server rejects more than 10,000 rows in one file or a raw bundle over 5 MiB with 413 `EXPORT_TOO_LARGE`; it never silently truncates an export. CSV quoting escapes separators, quotes, and newlines. User-controlled text that could become a spreadsheet formula is escaped; verified decimal values retain their exact sign and precision.
 
 ## Workspace and live synchronization
+
+`GET /api/market` authenticates inside a Read Only Repeatable Read snapshot and reads the committed session, market state, book, and executions without taking the command lock. A pending writer cannot turn market polling into a lock wait. Pause and fault states remain inspectable; public fault output is `ACCOUNTING_FAULT`, including a runtime halt whose diagnostic could not be persisted.
+
+Financial timestamps represent the PostgreSQL wall-clock value captured after command admission, shared across its evidence. They do not represent browser submission time or commit completion. Sequence determines execution priority. Migration `007_command_timestamps` leaves historical timestamps intact, and preview/authentication expiry uses current wall time at validation.
 
 `GET /api/workspace` reads identity, active exchange session, state, book, trades, candles, the role-specific account or admin view, and an outbox `cursor` within one read-only PostgreSQL Repeatable Read transaction. Monetary values and cursor positions remain strings. An administrator receives `admin` and no trading balance; a trader receives only their own `account`. Administrator overview includes fee and issuance account IDs for the privileged account-inspection route.
 

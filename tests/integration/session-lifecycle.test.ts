@@ -105,8 +105,18 @@ describe('durable session lifecycle and retained financial history', () => {
     expect(history.session).toMatchObject({ id: context.sessionId, state: 'CLOSED' });
     expect(history.session.closedAt).not.toBeNull();
     const boundary = await context.sql.query(
-      'SELECT (SELECT closed_at FROM exchange_sessions WHERE id=$1) = (SELECT created_at FROM exchange_sessions WHERE id=$2) AS coherent',
-      [context.sessionId, next],
+      `SELECT s.closed_at = n.created_at AND s.closed_at = op.completed_at
+        AND s.closed_at = r.created_at AND s.closed_at = a.created_at
+        AND op.started_at = gate.created_at AND op.completed_at >= op.started_at AS coherent
+        FROM exchange_sessions s JOIN exchange_sessions n ON n.id=$2
+        JOIN session_rollovers op ON op.previous_session_id=s.id
+        JOIN receipts r ON r.actor_id=op.actor_id AND r.command_id=op.command_id
+        JOIN admin_audit a ON a.actor_id=op.actor_id AND a.command_id=op.command_id
+          AND a.action='SESSION_ROLLED_OVER'
+        JOIN admin_audit gate ON gate.actor_id=op.actor_id AND gate.command_id=op.command_id
+          AND gate.action='SESSION_ROLLOVER_STARTED'
+        WHERE s.id=$1 AND op.command_id=$3`,
+      [context.sessionId, next, input.commandId],
     );
     expect(boundary.rows[0]!.coherent).toBe(true);
     expect(history.account!.balances['BTC-SIM']).toEqual({

@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { Exchange } from '../../apps/server/src/exchange.js';
+import type { ExchangeOptions } from '../../apps/server/src/types.js';
 
 /** Every test owns a schema; never truncate or reset an existing database. */
-export async function createTestExchange() {
+export async function createTestExchange(options: ExchangeOptions = {}) {
   const connectionString = process.env.TEST_DATABASE_URL;
   if (!connectionString) {
     throw new Error('TEST_DATABASE_URL must point to a disposable PostgreSQL database.');
@@ -27,9 +28,9 @@ export async function createTestExchange() {
     if (previous) await previous.close();
   }
 
-  async function start() {
+  async function start(startOptions: ExchangeOptions = options) {
     await stop();
-    current = await Exchange.open(url);
+    current = await Exchange.open(url, startOptions);
     return current;
   }
 

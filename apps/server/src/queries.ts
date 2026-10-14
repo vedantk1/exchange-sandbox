@@ -6,8 +6,13 @@ import { AuthError } from './auth/errors.js';
 import { detailedOrders, ownerFill } from './workspace.js';
 
 export async function marketSnapshot(exchange: Exchange, token: string) {
-  return exchange.accessTransaction(async (tx, control) => {
+  return exchange.readTransaction(async (tx) => {
     await requirePrincipal(tx, token);
+    const control = await tx
+      .selectFrom('exchange_control')
+      .selectAll()
+      .where('id', '=', 1)
+      .executeTakeFirstOrThrow();
     if (!control.active_session_id)
       throw new AuthError('NOT_BOOTSTRAPPED', 'Complete local administrator setup first.', 503);
     const sessionId = control.active_session_id;
@@ -40,7 +45,7 @@ export async function marketSnapshot(exchange: Exchange, token: string) {
     return {
       sessionId,
       marketState: control.market_state,
-      fault: control.fault ? 'ACCOUNTING_FAULT' : null,
+      fault: exchange.getRuntimeFault() || control.fault ? 'ACCOUNTING_FAULT' : null,
       book: { bids, asks },
       trades: fills.map((fill) => ({
         price: formatPrice(BigInt(fill.price)),

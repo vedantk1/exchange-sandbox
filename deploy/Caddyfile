@@ -19,12 +19,18 @@ http://{$PUBLIC_HOST} {
   handle @api {
     reverse_proxy api:3001
   }
+  @assets path /assets/*
+  handle @assets {
+    root * /srv
+    header Cache-Control no-store
+    header Cache-Control "public, max-age=31536000, immutable" {
+      match status 2xx
+    }
+    file_server
+  }
   handle {
     root * /srv
-    @assets path /assets/*
-    header @assets Cache-Control "public, max-age=31536000, immutable"
-    @mutable not path /assets/*
-    header @mutable Cache-Control no-cache
+    header Cache-Control no-cache
     try_files {path} /index.html
     file_server
   }

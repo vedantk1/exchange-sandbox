@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { commandTimestamp } from '../command-time.js';
 import type { Database } from '@sandbox/database';
 import { formatPrice, formatQuantity } from '@sandbox/domain';
 import type { Selectable, Transaction } from 'kysely';
@@ -148,7 +149,7 @@ export class DemoMarket {
           plan: JSON.stringify(plan),
           next_command: 0,
           status: 'RUNNING',
-          updated_at: new Date(),
+          updated_at: commandTimestamp,
         })
         .where('session_id', '=', sessionId)
         .returningAll()
@@ -212,7 +213,7 @@ export class DemoMarket {
               ...(result.code === 'INSUFFICIENT_FUNDS'
                 ? { status: 'LIMITED_INVENTORY' as const }
                 : {}),
-              updated_at: new Date(),
+              updated_at: commandTimestamp,
             })
             .where('session_id', '=', state.session_id)
             .execute();
@@ -232,7 +233,7 @@ export class DemoMarket {
             cycle: (BigInt(state.cycle) + 1n).toString(),
             plan: '[]',
             next_command: 0,
-            updated_at: new Date(),
+            updated_at: commandTimestamp,
           })
           .where('session_id', '=', state.session_id)
           .execute();
@@ -250,7 +251,7 @@ export class DemoMarket {
         if (!(await this.owns(tx, state))) return;
         await tx
           .updateTable('demo_market')
-          .set({ status: 'ERROR', updated_at: new Date() })
+          .set({ status: 'ERROR', updated_at: commandTimestamp })
           .where('session_id', '=', state.session_id)
           .execute();
         await changed(tx, control, state.session_id);

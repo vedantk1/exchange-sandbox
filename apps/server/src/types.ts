@@ -1,4 +1,5 @@
 import type { OrderStatus, Side } from '@sandbox/domain';
+import type { DatabaseOptions } from '@sandbox/database';
 
 export interface CommandIdentity {
   accountId: string;
@@ -82,6 +83,8 @@ export interface Snapshot {
 
 /** Failure injection at transaction boundaries; never supplied by a remote caller. */
 export interface ExchangeOptions {
+  /** Trusted local resource configuration; never accepted from an HTTP caller. */
+  database?: Omit<DatabaseOptions, 'onError'>;
   migrations?: 'apply' | 'verify';
   /** HTTP may start in inspection mode; financial admission remains gated. */
   allowFaultedStartup?: boolean;

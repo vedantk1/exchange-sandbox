@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Exchange } from '../../apps/server/src/exchange.js';
 import { provisionRuntimeRole } from '../../apps/server/src/deploy/runtime-role.js';
 import { isolatedDatabase } from '../../apps/server/src/operations/database.js';
+import { initializeOwner } from '../../apps/server/src/deploy/owner-initialization.js';
 
 describe('owner migration and restricted application database role', () => {
   let database: Awaited<ReturnType<typeof isolatedDatabase>>;
@@ -39,6 +40,16 @@ describe('owner migration and restricted application database role', () => {
     runtime = new pg.Client({ connectionString: runtimeUrl });
     await runtime.connect();
   }
+  it('runs bounded owner initialization and verifies the migrated restricted runtime', async () => {
+    await initializeOwner(database.url, new URL(runtimeUrl));
+    exchange = await Exchange.open(runtimeUrl, { migrations: 'verify' });
+    expect((await exchange.reconcile()).ok).toBe(true);
+    runtime = new pg.Client({ connectionString: runtimeUrl });
+    await runtime.connect();
+    await expect(
+      runtime.query('CREATE TABLE public.unauthorized_owner_probe(id int)'),
+    ).rejects.toMatchObject({ code: '42501' });
+  });
   it('rejects CREATE/ALTER/DROP and migration metadata writes while exact financial commands work', async () => {
     await provision();
     for (const statement of [

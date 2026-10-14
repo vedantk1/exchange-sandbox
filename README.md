@@ -40,6 +40,7 @@ The demo, integration, and browser test runners start real, temporary PostgreSQL
 - Cancellation of remaining quantity with no duplicated fund release.
 - Protected market orders with a server-bound 5% price guard, a 10-second preview, immediate execution, and explicit canceled remainders.
 - Durable command identity: retries resolve the original outcome, while changed payloads are rejected.
+- Bounded database work and shutdown, isolated market reads, coherent admission timestamps, and frontend recovery that preserves unresolved commands.
 - Startup reconciliation and tests that kill an actual application process before commit or after commit but before acknowledgement.
 - Hashed credentials and tokens, transactional invitation redemption, session revocation, and CSRF-protected API commands.
 - Audited pause/resume, grants, administrative cancellation, and suspension with fault-safe access revocation.
@@ -56,7 +57,7 @@ The architecture is a modular monolith with PostgreSQL as the authority. Seriali
 
 ## Continuous integration
 
-The [GitHub Actions workflow](.github/workflows/ci.yml) checks every push and pull request on Linux: frozen dependency installation, type checking, formatting, unit tests, PostgreSQL integration tests, the web build, Chromium browser flows, all three self-host image targets, and a fresh PostgreSQL restore. Use the repository's **Actions** tab to inspect the current result and download its operational report. Failed browser runs retain traces and screenshots for seven days.
+The [GitHub Actions workflow](.github/workflows/ci.yml) checks every push and pull request on Linux: frozen dependency installation, type checking, formatting, unit tests, PostgreSQL integration tests, the web build, Chromium browser flows, all three self-host image targets, trusted-HTTPS asset routing, and a fresh PostgreSQL restore. Use the repository's **Actions** tab to inspect the current result and download its operational report. Failed browser runs retain traces and screenshots for seven days.
 
 Recorded results and their limits are documented in the [development evidence](docs/DEVELOPMENT.md#evidence-and-limitations).
 

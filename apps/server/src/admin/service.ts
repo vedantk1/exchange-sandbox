@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { commandTimestamp } from '../command-time.js';
 import type { Asset, Database } from '@sandbox/database';
 import {
   DomainError,
@@ -168,7 +169,7 @@ export class AdminService {
           );
           await tx
             .updateTable('users')
-            .set({ pending_cancellation: false, updated_at: new Date() })
+            .set({ pending_cancellation: false, updated_at: commandTimestamp })
             .where('account_id', '=', account.account_id)
             .execute();
         }
@@ -197,7 +198,7 @@ export class AdminService {
           }
           await tx
             .updateTable('demo_market')
-            .set({ status: 'STOPPED', plan: '[]', next_command: 0, updated_at: new Date() })
+            .set({ status: 'STOPPED', plan: '[]', next_command: 0, updated_at: commandTimestamp })
             .where('session_id', '=', input.sessionId)
             .execute();
         }
@@ -287,7 +288,7 @@ export class AdminService {
             generation: (BigInt(state.generation) + 1n).toString(),
             plan: '[]',
             next_command: 0,
-            updated_at: new Date(),
+            updated_at: commandTimestamp,
           })
           .where('session_id', '=', input.sessionId)
           .returningAll()
@@ -337,7 +338,7 @@ export class AdminService {
             generation: (BigInt(state.generation) + 1n).toString(),
             plan: '[]',
             next_command: 0,
-            updated_at: new Date(),
+            updated_at: commandTimestamp,
           })
           .where('session_id', '=', input.sessionId)
           .execute();
@@ -494,19 +495,19 @@ export class AdminService {
             status: 'SUSPENDED',
             suspension_reason: input.reason,
             pending_cancellation: true,
-            updated_at: new Date(),
+            updated_at: commandTimestamp,
           })
           .where('account_id', '=', input.accountId)
           .execute();
         await tx
           .updateTable('login_sessions')
-          .set({ revoked_at: new Date() })
+          .set({ revoked_at: commandTimestamp })
           .where('account_id', '=', input.accountId)
           .where('revoked_at', 'is', null)
           .execute();
         await tx
           .updateTable('recovery_tokens')
-          .set({ revoked_at: new Date() })
+          .set({ revoked_at: commandTimestamp })
           .where('account_id', '=', input.accountId)
           .where('revoked_at', 'is', null)
           .where('used_at', 'is', null)
@@ -581,7 +582,7 @@ export class AdminService {
         await allocateTrader(tx, input.sessionId, input.accountId, input.commandId);
         await tx
           .updateTable('users')
-          .set({ status: 'ACTIVE', suspension_reason: null, updated_at: new Date() })
+          .set({ status: 'ACTIVE', suspension_reason: null, updated_at: commandTimestamp })
           .where('account_id', '=', input.accountId)
           .execute();
         return { status: 'ACCEPTED', accountId: input.accountId, accountStatus: 'ACTIVE' };
