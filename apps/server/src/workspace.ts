@@ -74,12 +74,11 @@ export async function detailedOrders(tx: Tx, rows: OrderRow[]): Promise<Workspac
   });
 }
 
-export async function accountWorkspace(
+export async function accountBalances(
   tx: Tx,
   sessionId: string,
   accountId: string,
-  admin = false,
-): Promise<AccountView> {
+): Promise<AccountView['balances']> {
   const balances = await tx
     .selectFrom('balances')
     .selectAll()
@@ -100,6 +99,16 @@ export async function accountWorkspace(
       total: format(available + reserved),
     };
   };
+  return { 'BTC-SIM': balance('BTC-SIM'), 'USD-SIM': balance('USD-SIM') };
+}
+
+export async function accountWorkspace(
+  tx: Tx,
+  sessionId: string,
+  accountId: string,
+  admin = false,
+): Promise<AccountView> {
+  const balances = await accountBalances(tx, sessionId, accountId);
   const baseOrders = tx
     .selectFrom('orders')
     .selectAll()
@@ -181,7 +190,7 @@ export async function accountWorkspace(
     entryReceipts.map((row) => [row.command_id, receiptOrder(row.result)]),
   );
   return {
-    balances: { 'BTC-SIM': balance('BTC-SIM'), 'USD-SIM': balance('USD-SIM') },
+    balances,
     openOrders: open.map((row) => detailed.get(row.id)!),
     orders: recent.map((row) => detailed.get(row.id)!),
     fills: fills.map((fill) => ({
@@ -281,22 +290,27 @@ export async function marketWorkspace(tx: Tx, sessionId: string): Promise<Worksp
   };
 }
 
-async function adminWorkspace(
+export async function adminWorkspace(
   tx: Tx,
   sessionId: string,
   marketState: string,
   fault: string | null,
   demoMarket: NonNullable<WorkspaceView['admin']>['overview']['demoMarket'],
+  options: { sessionAudit?: boolean; allocatedOnly?: boolean } = {},
 ): Promise<NonNullable<WorkspaceView['admin']>> {
+  const archive = options.allocatedOnly ?? false;
   const counts = await sql<{
     traders: string;
     suspended: string;
     pending: string;
     open_orders: string;
   }>`
-    SELECT (SELECT count(*)::text FROM users WHERE role = 'TRADER') AS traders,
-      (SELECT count(*)::text FROM users WHERE status = 'SUSPENDED') AS suspended,
-      (SELECT count(*)::text FROM users WHERE pending_cancellation) AS pending,
+    SELECT (SELECT count(*)::text FROM users WHERE role = 'TRADER'
+      AND (NOT ${archive}::boolean OR EXISTS (SELECT 1 FROM allocations WHERE session_id = ${sessionId}::uuid AND account_id = users.account_id))) AS traders,
+      (SELECT count(*)::text FROM users WHERE status = 'SUSPENDED'
+      AND (NOT ${archive}::boolean OR EXISTS (SELECT 1 FROM allocations WHERE session_id = ${sessionId}::uuid AND account_id = users.account_id))) AS suspended,
+      (SELECT count(*)::text FROM users WHERE pending_cancellation
+      AND (NOT ${archive}::boolean OR EXISTS (SELECT 1 FROM allocations WHERE session_id = ${sessionId}::uuid AND account_id = users.account_id))) AS pending,
       (SELECT count(*)::text FROM orders WHERE session_id = ${sessionId}::uuid AND status IN ('OPEN','PARTIALLY_FILLED')) AS open_orders`.execute(
     tx,
   );
@@ -305,7 +319,7 @@ async function adminWorkspace(
     .select(['id', 'kind'])
     .where('kind', 'in', ['FEE', 'ISSUANCE'])
     .execute();
-  const traders = await tx
+  let traderQuery = tx
     .selectFrom('users')
     .select([
       'account_id',
@@ -315,10 +329,12 @@ async function adminWorkspace(
       'pending_cancellation',
       'created_at',
     ])
-    .where('role', '=', 'TRADER')
-    .orderBy('handle')
-    .limit(200)
-    .execute();
+    .where('role', '=', 'TRADER');
+  if (archive)
+    traderQuery = traderQuery.where(
+      sql<boolean>`EXISTS (SELECT 1 FROM allocations WHERE session_id = ${sessionId}::uuid AND account_id = users.account_id)`,
+    );
+  const traders = await traderQuery.orderBy('handle').limit(200).execute();
   const invitations = await tx
     .selectFrom('invitations')
     .select(['id', 'created_at', 'expires_at', 'revoked_at', 'redeemed_at', 'redeemed_by'])
@@ -326,9 +342,9 @@ async function adminWorkspace(
     .orderBy('created_at', 'desc')
     .limit(200)
     .execute();
-  const audit = await tx
-    .selectFrom('admin_audit')
-    .selectAll()
+  let auditQuery = tx.selectFrom('admin_audit').selectAll();
+  if (options.sessionAudit) auditQuery = auditQuery.where('session_id', '=', sessionId);
+  const audit = await auditQuery
     .orderBy('created_at', 'desc')
     .orderBy('id', 'desc')
     .limit(HISTORY_LIMIT)
@@ -392,6 +408,13 @@ export async function workspaceSnapshot(exchange: Exchange, token: string): Prom
     const storedFault = exchange.getRuntimeFault() ?? control.fault;
     const fault = role === 'ADMIN' ? storedFault : storedFault ? 'ACCOUNTING_FAULT' : null;
     const cursor = await currentCursor(tx, sessionId);
+    const rollover = control.rollover_operation_id
+      ? await tx
+          .selectFrom('session_rollovers')
+          .selectAll()
+          .where('id', '=', control.rollover_operation_id)
+          .executeTakeFirst()
+      : undefined;
     const demo = await tx
       .selectFrom('demo_market')
       .select([
@@ -422,6 +445,17 @@ export async function workspaceSnapshot(exchange: Exchange, token: string): Prom
       marketState: control.market_state,
       fault,
       cursor,
+      ...(rollover?.state === 'IN_PROGRESS'
+        ? {
+            rollover: {
+              operationId: rollover.id,
+              previousSessionId: rollover.previous_session_id,
+              newSessionId: rollover.new_session_id,
+              state: 'IN_PROGRESS' as const,
+              startedAt: rollover.started_at.toISOString(),
+            },
+          }
+        : {}),
       market: {
         ...(await marketWorkspace(tx, sessionId)),
         ...(demoMarket ? { demoMarket } : {}),
@@ -460,6 +494,7 @@ export async function inspectAccount(
   exchange: Exchange,
   token: string,
   accountId: string,
+  requestedSessionId?: string,
 ): Promise<AccountView> {
   return exchange.readTransaction(async (tx) => {
     await requirePrincipal(tx, token, 'ADMIN');
@@ -475,8 +510,15 @@ export async function inspectAccount(
       .select('active_session_id')
       .where('id', '=', 1)
       .executeTakeFirstOrThrow();
-    if (!control.active_session_id)
+    if (!control.active_session_id && !requestedSessionId)
       throw new AuthError('NOT_BOOTSTRAPPED', 'Complete administrator setup first.', 503);
-    return accountWorkspace(tx, control.active_session_id, accountId, true);
+    const sessionId = requestedSessionId ?? control.active_session_id!;
+    const session = await tx
+      .selectFrom('exchange_sessions')
+      .select('id')
+      .where('id', '=', sessionId)
+      .executeTakeFirst();
+    if (!session) throw new AuthError('SESSION_NOT_FOUND', 'Trading session not found.', 404);
+    return accountWorkspace(tx, sessionId, accountId, true);
   });
 }

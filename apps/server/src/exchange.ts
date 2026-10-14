@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createDatabase, migrate, type Database } from '@sandbox/database';
+import { createDatabase, migrate, verifyMigrations, type Database } from '@sandbox/database';
 import type { MarketPreviewView } from '@sandbox/contracts';
 import {
   assertOrderSubmission,
@@ -38,6 +38,7 @@ import { allocateTrader, initializeSession } from './core-mutations.js';
 import { requirePrincipal } from './auth/access.js';
 import { AuthError } from './auth/errors.js';
 import { admitRequest, checkPendingAdmission, COMMAND_LOCK_TIMEOUT_MS } from './admission.js';
+import { recoverSessionRollover, requireNoRollover } from './session-lifecycle.js';
 
 export type * from './types.js';
 export { CommandConflictError, RecoveryError, WriterUnavailableError } from './errors.js';
@@ -106,7 +107,8 @@ export class Exchange {
         [WRITER_LOCK],
       );
       if (!lock.rows[0]?.acquired) throw new WriterUnavailableError();
-      await migrate(db);
+      if (options.migrations === 'verify') await verifyMigrations(db);
+      else await migrate(db);
       const fault = await db.transaction().execute(async (tx) => {
         const control = await tx
           .selectFrom('exchange_control')
@@ -125,6 +127,7 @@ export class Exchange {
         return fault;
       });
       if (fault && !options.allowFaultedStartup) throw new RecoveryError(fault);
+      if (!fault) await recoverSessionRollover(exchange);
       return exchange;
     } catch (error) {
       await exchange.close();
@@ -205,6 +208,20 @@ export class Exchange {
 
   clearRuntimeFault(expectedRevision: number): void {
     if (expectedRevision === this.faultRevision) this.runtimeFault = null;
+  }
+
+  /** Internal lifecycle failure boundaries; hooks never come from HTTP input. */
+  async rolloverBoundary(
+    stage: 'afterGate' | 'beforeCommit' | 'afterCommit',
+    commandId: string,
+  ): Promise<void> {
+    const hook =
+      stage === 'afterGate'
+        ? this.options.hooks?.afterRolloverGate
+        : stage === 'beforeCommit'
+          ? this.options.hooks?.beforeRolloverCommit
+          : this.options.hooks?.afterRolloverCommit;
+    await hook?.(commandId);
   }
 
   async financialTransaction<T>(
@@ -310,6 +327,7 @@ export class Exchange {
     return this.financialTransaction(async (tx, control) => {
       const prior = await this.receipt(tx, input.accountId, input.commandId, hash);
       if (prior) return prior as unknown as { accountId: string; sessionId: string };
+      requireNoRollover(control);
       const sessionId = control.active_session_id;
       if (!sessionId)
         throw new DomainError('NOT_BOOTSTRAPPED', 'Bootstrap the local exchange first.');
@@ -414,6 +432,7 @@ export class Exchange {
           replay = true;
           return prior as unknown as CommandResult;
         }
+        requireNoRollover(control);
         const account = await tx
           .selectFrom('accounts')
           .select('kind')
@@ -531,6 +550,7 @@ export class Exchange {
           throw new DomainError('NOT_ORDER_OWNER', 'Actor does not own this account.');
       }
       if (control.fault) throw new RecoveryError(control.fault);
+      requireNoRollover(control);
       if (control.active_session_id !== input.sessionId)
         throw new DomainError('STALE_SESSION', 'The trading session has changed.');
       if (control.market_state !== 'TRADING')

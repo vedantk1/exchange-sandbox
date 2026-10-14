@@ -2,12 +2,20 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import type { Exchange } from '../../apps/server/src/exchange.js';
+import type { AdminCommand } from '../../apps/server/src/admin/service.js';
 
 export async function killAtTransactionBoundary(
   databaseUrl: string,
-  stage: 'beforeCommit' | 'afterCommit',
-  command: Parameters<Exchange['placeLimit']>[0] | Parameters<Exchange['placeMarket']>[0],
-  operation: 'limit' | 'market' = 'limit',
+  stage:
+    | 'beforeCommit'
+    | 'afterCommit'
+    | 'afterRolloverGate'
+    | 'beforeRolloverCommit'
+    | 'afterRolloverCommit',
+  command:
+    Parameters<Exchange['placeLimit']>[0] | Parameters<Exchange['placeMarket']>[0] | AdminCommand,
+  operation: 'limit' | 'market' | 'rollover' = 'limit',
+  token?: string,
 ) {
   const child = spawn(
     process.execPath,
@@ -19,6 +27,7 @@ export async function killAtTransactionBoundary(
         EXCHANGE_CRASH_STAGE: stage,
         EXCHANGE_CRASH_OPERATION: operation,
         EXCHANGE_CRASH_COMMAND: JSON.stringify(command),
+        ...(token ? { EXCHANGE_CRASH_TOKEN: token } : {}),
       },
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
     },

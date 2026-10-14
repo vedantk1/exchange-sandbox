@@ -82,10 +82,14 @@ export interface Snapshot {
 
 /** Failure injection at transaction boundaries; never supplied by a remote caller. */
 export interface ExchangeOptions {
+  migrations?: 'apply' | 'verify';
   /** HTTP may start in inspection mode; financial admission remains gated. */
   allowFaultedStartup?: boolean;
   hooks?: {
     beforeCommit?: (commandId: string) => Promise<void>;
     afterCommit?: (commandId: string) => Promise<void>;
+    afterRolloverGate?: (commandId: string) => Promise<void>;
+    beforeRolloverCommit?: (commandId: string) => Promise<void>;
+    afterRolloverCommit?: (commandId: string) => Promise<void>;
   };
 }

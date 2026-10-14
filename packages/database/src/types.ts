@@ -14,6 +14,18 @@ export type Asset = 'BTC-SIM' | 'USD-SIM';
 export type Bucket = 'AVAILABLE' | 'RESERVED';
 
 export interface Database {
+  session_rollovers: {
+    id: string;
+    actor_id: string;
+    command_id: string;
+    previous_session_id: string;
+    new_session_id: string;
+    payload_hash: string;
+    reason: string;
+    state: 'IN_PROGRESS' | 'COMPLETED';
+    started_at: Timestamp;
+    completed_at: Date | null;
+  };
   market_previews: {
     id: string;
     account_id: string;
@@ -49,6 +61,7 @@ export interface Database {
     id: string;
     state: 'ACTIVE' | 'CLOSED';
     created_at: Timestamp;
+    closed_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
   };
   exchange_control: {
     id: number;
@@ -57,6 +70,7 @@ export interface Database {
     writer_epoch: DefaultExactInteger;
     fault: string | null;
     market_state: Generated<'TRADING' | 'PAUSED'>;
+    rollover_operation_id: string | null;
   };
   accounts: {
     id: string;

@@ -15,6 +15,7 @@ import type { Exchange } from '../exchange.js';
 import { postJournal } from '../ledger.js';
 import { reconcileDatabase } from '../reconcile.js';
 import type { OrderView } from '../types.js';
+import { requireNoRollover, rolloverSession } from '../session-lifecycle.js';
 import {
   fingerprint,
   loadReceipt,
@@ -67,6 +68,15 @@ export class AdminService {
       const principal = await requirePrincipal(tx, token, 'ADMIN');
       const prior = await loadReceipt(tx, principal.accountId, input.commandId, hash);
       if (prior) return prior as AdminResult;
+      if (
+        ![
+          'TRADER_SUSPENDED',
+          'SIMULATOR_STOPPED',
+          'MARKET_PAUSED',
+          'RECONCILIATION_CHECKED',
+        ].includes(action)
+      )
+        requireNoRollover(control);
       const sequence = await nextSequence(tx, control);
       const outcome =
         control.active_session_id === input.sessionId
@@ -97,6 +107,10 @@ export class AdminService {
     if (mode === 'access') return this.exchange.accessTransaction(work);
     if (mode === 'recovery') return this.exchange.recoveryTransaction(work);
     return this.exchange.financialTransaction(work);
+  }
+
+  async rollover(token: string, input: AdminCommand): Promise<AdminResult> {
+    return rolloverSession(this.exchange, token, input);
   }
 
   async pause(token: string, input: AdminCommand): Promise<AdminResult> {
@@ -329,7 +343,7 @@ export class AdminService {
           .execute();
         let pendingCancellation = true;
         let canceledOrders: OrderView[] = [];
-        if (!control.fault) {
+        if (!control.fault && !control.rollover_operation_id) {
           await sql`SAVEPOINT simulator_cancellations`.execute(tx);
           try {
             for (const accountId of [state.maker_account_id, state.taker_account_id]) {
@@ -499,7 +513,7 @@ export class AdminService {
           .execute();
         let pendingCancellation = true;
         let canceledOrders: OrderView[] = [];
-        if (!control.fault) {
+        if (!control.fault && !control.rollover_operation_id) {
           // Restrictions survive a newly discovered financial failure: only the
           // cancellation work sits behind this inner savepoint.
           await sql`SAVEPOINT suspension_cancellations`.execute(tx);

@@ -55,13 +55,10 @@ export async function marketSnapshot(exchange: Exchange, token: string) {
 
 export async function privateOrder(exchange: Exchange, token: string, orderId: string) {
   return exchange.readTransaction(async (tx) => {
-    const actor = await requirePrincipal(tx, token, 'TRADER');
-    const order = await tx
-      .selectFrom('orders')
-      .selectAll()
-      .where('id', '=', orderId)
-      .where('account_id', '=', actor.accountId)
-      .executeTakeFirst();
+    const actor = await requirePrincipal(tx, token);
+    let orderQuery = tx.selectFrom('orders').selectAll().where('id', '=', orderId);
+    if (actor.role === 'TRADER') orderQuery = orderQuery.where('account_id', '=', actor.accountId);
+    const order = await orderQuery.executeTakeFirst();
     if (!order) throw new AuthError('ORDER_NOT_FOUND', 'Order not found.', 404);
     const fills = await tx
       .selectFrom('fills')
@@ -72,6 +69,7 @@ export async function privateOrder(exchange: Exchange, token: string, orderId: s
       .limit(100)
       .execute();
     return {
+      sessionId: order.session_id,
       order: (await detailedOrders(tx, [order]))[0]!,
       fills: fills.map((fill) => ownerFill(fill, order)),
       historyLimit: 100,

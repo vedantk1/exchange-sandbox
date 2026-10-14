@@ -15,6 +15,7 @@ import { allocateTrader, initializeSession } from '../core-mutations.js';
 import type { Exchange } from '../exchange.js';
 import { canonicalHandle, hashPassword, newToken, tokenHash, verifyPassword } from './crypto.js';
 import { AuthError } from './errors.js';
+import { requireNoRollover } from '../session-lifecycle.js';
 import { requirePrincipal, type Principal, type UserView } from './principal.js';
 
 const SESSION_DURATION = 12 * 60 * 60 * 1_000;
@@ -441,6 +442,7 @@ export class AuthService {
     const handle = canonicalHandle(input.handle);
     const passwordHash = await hashPassword(input.password);
     return this.exchange.financialTransaction(async (tx, control) => {
+      requireNoRollover(control);
       const invitation = await tx
         .selectFrom('invitations')
         .selectAll()

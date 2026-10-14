@@ -1,9 +1,22 @@
 import { Exchange } from '../../apps/server/src/exchange.js';
+import { AdminService } from '../../apps/server/src/admin/index.js';
+import type { AdminCommand } from '../../apps/server/src/admin/service.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const stage = process.env.EXCHANGE_CRASH_STAGE;
 const serializedCommand = process.env.EXCHANGE_CRASH_COMMAND;
-if (!databaseUrl || !serializedCommand || (stage !== 'beforeCommit' && stage !== 'afterCommit')) {
+if (
+  !databaseUrl ||
+  !serializedCommand ||
+  !stage ||
+  ![
+    'beforeCommit',
+    'afterCommit',
+    'afterRolloverGate',
+    'beforeRolloverCommit',
+    'afterRolloverCommit',
+  ].includes(stage)
+) {
   throw new Error('The crash worker requires a database, command, and valid crash stage.');
 }
 const command = JSON.parse(serializedCommand) as Parameters<Exchange['placeLimit']>[0];
@@ -19,7 +32,11 @@ const exchange = await Exchange.open(databaseUrl, {
     },
   },
 });
-if (process.env.EXCHANGE_CRASH_OPERATION === 'market') {
+if (process.env.EXCHANGE_CRASH_OPERATION === 'rollover') {
+  const token = process.env.EXCHANGE_CRASH_TOKEN;
+  if (!token) throw new Error('A rollover crash worker requires its authenticated test session.');
+  await new AdminService(exchange).rollover(token, JSON.parse(serializedCommand) as AdminCommand);
+} else if (process.env.EXCHANGE_CRASH_OPERATION === 'market') {
   await exchange.placeMarket(
     JSON.parse(serializedCommand) as Parameters<Exchange['placeMarket']>[0],
   );

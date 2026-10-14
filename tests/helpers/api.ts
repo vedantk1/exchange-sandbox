@@ -68,6 +68,7 @@ export async function createApiFixture(
     live?: LiveOptions;
     hooks?: ExchangeOptions['hooks'];
     origin?: string;
+    proxyHops?: 0 | 1;
   } = {},
 ) {
   const connectionString = process.env.TEST_DATABASE_URL;
@@ -106,6 +107,7 @@ export async function createApiFixture(
       origin: options.origin ?? API_ORIGIN,
       secureCookies: false,
       logger: false,
+      ...(options.proxyHops !== undefined ? { proxyHops: options.proxyHops } : {}),
       ...(options.admission ? { admission: options.admission } : {}),
       ...(options.live ? { live: options.live } : {}),
     });

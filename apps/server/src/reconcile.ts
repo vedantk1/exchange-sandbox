@@ -15,6 +15,59 @@ export async function reconcileDatabase(
 ): Promise<{ ok: boolean; issues: string[] }> {
   const checks: Check[] = [
     {
+      code: 'SESSION_ROLLOVER',
+      query: sql`
+        select o.id::text as detail from session_rollovers o
+        left join exchange_control c on c.rollover_operation_id = o.id
+        left join exchange_sessions previous on previous.id = o.previous_session_id
+        left join exchange_sessions next on next.id = o.new_session_id
+        left join receipts r on r.actor_id = o.actor_id and r.command_id = o.command_id
+        where (o.state = 'IN_PROGRESS' and (
+          c.id is null or c.active_session_id is distinct from o.previous_session_id
+          or c.market_state <> 'PAUSED' or previous.state is distinct from 'ACTIVE'
+          or next.id is not null or r.command_id is not null
+        )) or (o.state = 'COMPLETED' and (
+          c.id is not null or previous.state is distinct from 'CLOSED' or next.id is null
+          or r.payload_hash is distinct from o.payload_hash
+          or r.session_id is distinct from o.previous_session_id
+          or r.result->>'status' is distinct from 'ACCEPTED'
+          or r.result->'data'->>'previousSessionId' is distinct from o.previous_session_id::text
+          or r.result->'data'->>'newSessionId' is distinct from o.new_session_id::text
+        ))
+        union all
+        select 'Gate points to a completed or missing operation' as detail
+        from exchange_control c left join session_rollovers o on o.id = c.rollover_operation_id
+        where c.rollover_operation_id is not null and o.state is distinct from 'IN_PROGRESS'
+      `,
+    },
+    {
+      code: 'ARCHIVED_FINANCIAL_STATE',
+      query: sql`
+        select s.id::text as detail from exchange_sessions s where s.state = 'CLOSED' and (
+          s.closed_at is null or exists (select 1 from orders o where o.session_id = s.id
+            and (o.status in ('OPEN', 'PARTIALLY_FILLED') or o.reserved_amount <> 0))
+          or exists (select 1 from balances b where b.session_id = s.id
+            and b.bucket = 'RESERVED' and b.amount <> 0)
+          or exists (select 1 from demo_market d where d.session_id = s.id
+            and (d.enabled or d.status <> 'STOPPED' or jsonb_array_length(d.plan) <> 0))
+        )
+      `,
+    },
+    {
+      code: 'SESSION_PARTICIPANT_ALLOCATION',
+      query: sql`
+        select u.account_id::text as detail from users u cross join exchange_control c
+        where u.role = 'TRADER' and u.status = 'ACTIVE' and c.active_session_id is not null
+          and not exists (select 1 from allocations a where a.session_id = c.active_session_id
+            and a.account_id = u.account_id)
+        union all
+        select d.session_id::text || '/' || account_id::text as detail from demo_market d
+        cross join lateral (values (d.maker_account_id), (d.taker_account_id)) accounts(account_id)
+        where not exists (select 1 from allocations a
+          where a.session_id = d.session_id and a.account_id = accounts.account_id)
+      `,
+    },
+    {
       code: 'SESSION_CONTROL',
       query: sql`
         select 'Active session and installation control disagree' as detail

@@ -18,6 +18,7 @@ const REPLAY_LIMIT = 1_000;
 
 function visible(event: Outbox, actor: Principal): boolean {
   if (actor.role === 'ADMIN' || event.payload.accountId === actor.accountId) return true;
+  if (event.event_type === 'SESSION_ROLLOVER_STARTED') return true;
   if (event.payload.status !== 'ACCEPTED') return false;
   if (
     [

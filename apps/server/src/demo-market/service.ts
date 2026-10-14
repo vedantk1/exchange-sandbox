@@ -82,13 +82,17 @@ export class DemoMarket {
         .where('id', '=', 1)
         .executeTakeFirstOrThrow();
       return (
-        control.market_state === 'TRADING' && !control.fault && !this.exchange.getRuntimeFault()
+        control.market_state === 'TRADING' &&
+        !control.rollover_operation_id &&
+        !control.fault &&
+        !this.exchange.getRuntimeFault()
       );
     });
     if (!ready) return undefined;
     return this.exchange.financialTransaction(async (tx, control) => {
       const sessionId = control.active_session_id;
-      if (!sessionId || control.market_state !== 'TRADING') return undefined;
+      if (!sessionId || control.market_state !== 'TRADING' || control.rollover_operation_id)
+        return undefined;
       const state = await tx
         .selectFrom('demo_market')
         .selectAll()
@@ -153,6 +157,13 @@ export class DemoMarket {
   }
 
   private async owns(tx: Transaction<Database>, state: State): Promise<boolean> {
+    const control = await tx
+      .selectFrom('exchange_control')
+      .select(['active_session_id', 'rollover_operation_id'])
+      .where('id', '=', 1)
+      .executeTakeFirstOrThrow();
+    if (control.active_session_id !== state.session_id || control.rollover_operation_id)
+      return false;
     const current = await tx
       .selectFrom('demo_market')
       .select(['enabled', 'generation'])

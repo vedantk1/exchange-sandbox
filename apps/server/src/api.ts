@@ -15,6 +15,13 @@ import {
 } from './exchange.js';
 import { marketSnapshot, privateOrder } from './queries.js';
 import { workspaceSnapshot, inspectAccount } from './workspace.js';
+import {
+  sessionsSnapshot,
+  historySnapshot,
+  historyPage,
+  historyExport,
+  searchAccounts,
+} from './history/index.js';
 import { LiveUpdates, type LiveOptions } from './live.js';
 import { AdmissionError, installHttpAdmission, type HttpAdmissionOptions } from './admission.js';
 
@@ -27,6 +34,8 @@ export interface ApiOptions {
   logger?: boolean;
   admission?: HttpAdmissionOptions;
   live?: LiveOptions;
+  /** One trusted reverse-proxy hop is valid only while the backend port stays private. */
+  proxyHops?: 0 | 1;
 }
 
 /** Owns HTTP resources only. The composition root owns Exchange's lifetime. */
@@ -58,7 +67,7 @@ export async function buildApi(options: ApiOptions) {
         }
       : false,
     logController: new LogController({ disableRequestLogging: true }),
-    trustProxy: false,
+    trustProxy: options.proxyHops === 1 ? (_address: string, hop: number) => hop === 0 : false,
     bodyLimit: 16_384,
     requestTimeout: 15_000,
     connectionTimeout: 15_000,
@@ -197,6 +206,7 @@ export async function buildApi(options: ApiOptions) {
       const ready = await exchange.accessTransaction(
         async (tx, control) =>
           !control.fault &&
+          !control.rollover_operation_id &&
           Boolean(control.active_session_id) &&
           Boolean(
             await tx
@@ -290,9 +300,71 @@ export async function buildApi(options: ApiOptions) {
     '/api/admin/traders/:id/workspace',
     {
       preHandler: protect('ADMIN'),
-      schema: { security, params: S.IdParam, response: { 200: S.AccountWorkspace, ...errors } },
+      schema: {
+        security,
+        params: S.IdParam,
+        querystring: S.SessionQuery,
+        response: { 200: S.AccountWorkspace, ...errors },
+      },
     },
-    async (request) => inspectAccount(exchange, token(request), request.params.id),
+    async (request) =>
+      inspectAccount(exchange, token(request), request.params.id, request.query.sessionId),
+  );
+  app.get(
+    '/api/sessions',
+    {
+      preHandler: protect(),
+      schema: { security, querystring: S.SessionsQuery, response: { 200: S.Sessions, ...errors } },
+    },
+    async (request) => sessionsSnapshot(exchange, token(request), request.query),
+  );
+  app.get(
+    '/api/history/:sessionId',
+    {
+      preHandler: protect(),
+      schema: { security, params: S.SessionParam, response: { 200: S.History, ...errors } },
+    },
+    async (request) => historySnapshot(exchange, token(request), request.params.sessionId),
+  );
+  app.get(
+    '/api/history/:sessionId/page',
+    {
+      preHandler: protect(),
+      schema: {
+        security,
+        params: S.SessionParam,
+        querystring: S.HistoryPageQuery,
+        response: { 200: S.HistoryPage, ...errors },
+      },
+    },
+    async (request) =>
+      historyPage(exchange, token(request), request.params.sessionId, request.query),
+  );
+  app.get(
+    '/api/history/:sessionId/export',
+    {
+      preHandler: protect(),
+      schema: {
+        security,
+        params: S.SessionParam,
+        querystring: S.HistoryExportQuery,
+        response: { 200: S.HistoryExport, ...errors },
+      },
+    },
+    async (request) =>
+      historyExport(exchange, token(request), request.params.sessionId, request.query.accountId),
+  );
+  app.get(
+    '/api/admin/accounts/search',
+    {
+      preHandler: protect('ADMIN'),
+      schema: {
+        security,
+        querystring: S.AccountSearchQuery,
+        response: { 200: S.AccountSearch, ...errors },
+      },
+    },
+    async (request) => searchAccounts(exchange, token(request), request.query),
   );
   app.get(
     '/api/events',
@@ -416,6 +488,14 @@ export async function buildApi(options: ApiOptions) {
           ...errors,
         },
       },
+    },
+    async (request) => privateOrder(exchange, token(request), request.params.orderId),
+  );
+  app.get(
+    '/api/admin/orders/:orderId',
+    {
+      preHandler: protect('ADMIN'),
+      schema: { security, params: S.OrderParam, response: { 200: S.OrderDetail, ...errors } },
     },
     async (request) => privateOrder(exchange, token(request), request.params.orderId),
   );
@@ -546,6 +626,14 @@ export async function buildApi(options: ApiOptions) {
       schema: { security, body: S.AdminCommand, response: { 200: S.AdminResult, ...errors } },
     },
     async (request) => admin.pause(token(request), request.body),
+  );
+  app.post(
+    '/api/admin/sessions/rollover',
+    {
+      preHandler: protect('ADMIN'),
+      schema: { security, body: S.AdminCommand, response: { 200: S.AdminResult, ...errors } },
+    },
+    async (request) => admin.rollover(token(request), request.body),
   );
   app.post(
     '/api/admin/market/resume',

@@ -299,6 +299,7 @@ export const AccountWorkspace = Type.Object({
   historyLimit: Type.Integer(),
 });
 export const OrderDetail = Type.Object({
+  sessionId: Id,
   order: WorkspaceOrder,
   fills: Type.Array(WorkspaceFill),
   historyLimit: Type.Integer(),
@@ -377,6 +378,15 @@ export const Workspace = Type.Object({
   marketState: Type.Union([Type.Literal('TRADING'), Type.Literal('PAUSED')]),
   fault: Type.Union([Type.String(), Type.Null()]),
   cursor: Cursor,
+  rollover: Type.Optional(
+    Type.Object({
+      operationId: Id,
+      previousSessionId: Id,
+      newSessionId: Id,
+      state: Type.Literal('IN_PROGRESS'),
+      startedAt: Type.String(),
+    }),
+  ),
   market: Type.Object({
     book: Market.properties.book,
     trades: Market.properties.trades,
@@ -407,3 +417,103 @@ export type WorkspaceFillView = Static<typeof WorkspaceFill>;
 export type ActivityView = Static<typeof Activity>;
 export type CommandHistoryView = Static<typeof CommandHistory>;
 export type CandleView = Static<typeof Candle>;
+
+export const PageCursor = Type.String({ minLength: 1, maxLength: 2048 });
+export const PageLimit = Type.String({ pattern: '^(100|[1-9][0-9]?)$' });
+export const SessionSummary = Type.Object({
+  id: Id,
+  state: Type.Union([Type.Literal('ACTIVE'), Type.Literal('CLOSED')]),
+  createdAt: Type.String(),
+  closedAt: Type.Union([Type.String(), Type.Null()]),
+});
+export const SessionsQuery = Type.Object(
+  { limit: Type.Optional(PageLimit), cursor: Type.Optional(PageCursor) },
+  { additionalProperties: false },
+);
+export const Sessions = Type.Object({
+  sessions: Type.Array(SessionSummary),
+  nextCursor: Type.Union([PageCursor, Type.Null()]),
+});
+export const SessionParam = Type.Object({ sessionId: Id }, { additionalProperties: false });
+export const SessionQuery = Type.Object(
+  { sessionId: Type.Optional(Id) },
+  { additionalProperties: false },
+);
+export const History = Type.Object({
+  user: User,
+  session: SessionSummary,
+  asOf: Type.String(),
+  cursor: Cursor,
+  market: Workspace.properties.market,
+  account: Workspace.properties.account,
+  admin: Workspace.properties.admin,
+  historyLimit: Type.Integer(),
+});
+export const HistoryKind = Type.Union([
+  Type.Literal('orders'),
+  Type.Literal('fills'),
+  Type.Literal('activity'),
+  Type.Literal('commands'),
+  Type.Literal('audit'),
+]);
+export const HistoryPageQuery = Type.Object(
+  {
+    kind: HistoryKind,
+    accountId: Type.Optional(Id),
+    limit: Type.Optional(PageLimit),
+    cursor: Type.Optional(PageCursor),
+    search: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+    side: Type.Optional(Order.properties.side),
+    status: Type.Optional(
+      Type.Union([
+        Type.Literal('OPEN'),
+        Type.Literal('PARTIALLY_FILLED'),
+        Type.Literal('FILLED'),
+        Type.Literal('CANCELED'),
+      ]),
+    ),
+  },
+  { additionalProperties: false },
+);
+export const HistoryPage = Type.Object({
+  sessionId: Id,
+  accountId: Type.Union([Id, Type.Null()]),
+  kind: HistoryKind,
+  asOf: Type.String(),
+  items: Type.Array(
+    Type.Union([WorkspaceOrder, WorkspaceFill, Activity, CommandHistory, WorkspaceAudit]),
+  ),
+  nextCursor: Type.Union([PageCursor, Type.Null()]),
+});
+export const HistoryExportQuery = Type.Object(
+  { accountId: Type.Optional(Id) },
+  { additionalProperties: false },
+);
+export const HistoryExport = Type.Object({
+  sessionId: Id,
+  accountId: Type.Union([Id, Type.Null()]),
+  asOf: Type.String(),
+  cursor: Cursor,
+  files: Type.Array(Type.Object({ name: Type.String(), content: Type.String() })),
+});
+export const AccountSearchQuery = Type.Object(
+  {
+    search: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+    cursor: Type.Optional(PageCursor),
+    limit: Type.Optional(PageLimit),
+  },
+  { additionalProperties: false },
+);
+export const AccountSearch = Type.Object({
+  items: Type.Array(WorkspaceTrader),
+  nextCursor: Type.Union([PageCursor, Type.Null()]),
+});
+export type SessionSummaryView = Static<typeof SessionSummary>;
+export type SessionsView = Static<typeof Sessions>;
+export type SessionsQueryInput = Static<typeof SessionsQuery>;
+export type HistoryView = Static<typeof History>;
+export type HistoryPageView = Static<typeof HistoryPage>;
+export type HistoryPageQueryInput = Static<typeof HistoryPageQuery>;
+export type HistoryExportView = Static<typeof HistoryExport>;
+export type AccountSearchView = Static<typeof AccountSearch>;
+export type AccountSearchQueryInput = Static<typeof AccountSearchQuery>;
