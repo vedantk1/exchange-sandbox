@@ -357,7 +357,7 @@ The acceptance controller owns an exclusive private run directory, generated con
 
 Use a real disposable PostgreSQL database for transaction tests. Mocked repositories and SQLite cannot establish PostgreSQL lock or snapshot behavior. Tests should exercise guarantees and races, not merely repeat implementation statements.
 
-An initial performance-validation workload is 20 connected traders, up to 1,000 human resting orders, the bot preset, and 20 mutating commands per second. Measure command completion, lock wait, recovery, and live-update delay on documented reference resources. This is a proposed test workload, not a proven capacity or a new participant limit. Agree numeric latency and resource targets before declaring performance acceptance.
+The earlier performance proposal of 20 connected traders, up to 1,000 human resting orders, the bot preset and 20 mutating commands per second remains an unvalidated stress scenario. The HTTP adapter currently permits 600 requests/minute per client IP and 20/minute on rate-limited authentication routes, so a sustained single-IP driver cannot exercise that command rate without expected throttling. Define client topology, a normal request budget, a separate overload probe, duration and numeric latency/resource targets before evaluating the packaged runtime. Retain the protections, measure command completion, lock wait, memory, recovery and live-update delay, and report the actual supported workload. See the [release direction review](RELEASE.md#direction-review-and-remaining-work) for the bounded remaining work.
 
 Implementation order:
 
