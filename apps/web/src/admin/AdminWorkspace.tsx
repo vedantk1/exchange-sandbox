@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { AccountSearchView, AccountView } from '@sandbox/contracts';
 import { api, type CommandOutcome } from '../lib/api';
 import { AccountInspector, Empty, Status } from './AccountInspector';
 import { ActionDialog, SecretDialog } from './ActionDialog';
 import { AccountSearch } from '../history/AccountSearch';
 import { SessionHistory } from '../history/SessionHistory';
+import { clearHistoryLocation } from '../history/history-location';
 import { SimulatorCard } from './SimulatorCard';
 import { date, label } from './format';
 import type { AdminAction, AdminWorkspaceProps } from './types';
@@ -21,7 +23,13 @@ export function AdminWorkspace({
   readOrder,
   refresh,
 }: AdminWorkspaceProps) {
-  const [tab, setTab] = useState<Tab>('overview');
+  const [parameters, setParameters] = useSearchParams();
+  const requestedTab = parameters.getAll('view').length === 1 ? parameters.get('view') : null;
+  const tab: Tab =
+    requestedTab &&
+    ['overview', 'participants', 'invitations', 'audit', 'history'].includes(requestedTab)
+      ? (requestedTab as Tab)
+      : 'overview';
   const [selectedParticipant, setSelectedParticipant] = useState<
     NonNullable<AdminWorkspaceProps['workspace']['admin']>['traders'][number] | null
   >(null);
@@ -40,6 +48,22 @@ export function AdminWorkspace({
     null,
   );
   const admin = workspace.admin;
+
+  function setTab(nextTab: Tab, historyAccount?: string | null) {
+    setParameters((previous) => {
+      const next =
+        historyAccount === undefined
+          ? new URLSearchParams(previous)
+          : clearHistoryLocation(previous);
+      if (nextTab === 'overview') next.delete('view');
+      else next.set('view', nextTab);
+      if (nextTab === 'history' && historyAccount) {
+        next.set('account', historyAccount);
+        next.set('kind', 'fills');
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     let current = true;
@@ -496,19 +520,13 @@ export function AdminWorkspace({
             canGrant={paused && !faulted}
             fault={faulted}
             onAction={setAction}
-            onHistory={() => setTab('history')}
+            onHistory={() => setTab('history', selectedId)}
             retry={() => setAccountRead((value) => value + 1)}
           />
         </div>
       )}
       {tab === 'history' && (
-        <SessionHistory
-          key={selectedId ?? 'audit'}
-          workspace={workspace}
-          readOrder={readOrder}
-          readAccount={readAccount}
-          {...(selectedId ? { initialAccountId: selectedId } : {})}
-        />
+        <SessionHistory workspace={workspace} readOrder={readOrder} readAccount={readAccount} />
       )}
       {tab === 'invitations' && (
         <section className="admin-card">
@@ -698,7 +716,7 @@ export function AdminWorkspace({
               className="admin-link"
               onClick={() => {
                 setSelectedId(null);
-                setTab('history');
+                setTab('history', null);
               }}
             >
               Browse complete administrator history

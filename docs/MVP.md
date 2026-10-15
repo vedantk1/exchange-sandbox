@@ -55,6 +55,8 @@ Before the first trade, the chart and last-trade price show an honest empty stat
 
 The implemented chart also explains the first one to four populated minute buckets: a flat candle is valid, and additional candles require trades in additional minutes. Existing data stays visible. Ongoing demo activity uses real execution times, so several minutes of chart history take several real minutes to accumulate.
 
+**View candle data** exposes the same populated minutes in a keyboard-accessible UTC table, newest first, with exact open/high/low/close prices and BTC-SIM volume. The visual chart is an approximation for drawing; the table preserves the API's decimal precision. Narrow screens scroll the table without widening the document.
+
 ## Trader flows
 
 ### Join and receive starting funds
@@ -235,6 +237,8 @@ Grants never modify an existing reservation or a prior record. Direct balance ed
 While rollover is in progress, invitation redemption, reinstatement, and grants are temporarily unavailable. Already accepted enrollments or grants must resolve before closing the old session, and those enrolled accounts then participate in the normal carryover. Requests not yet accepted receive a temporary-unavailability response and can be retried after the transition without consuming an invitation. Every allocation belongs to exactly one session; no account is silently omitted or funded in an already archived session.
 
 Retries must recover the outcome of the same new-session request. An interrupted transition stays visibly unavailable until completed or recovered; it must not silently create another session. Archived sessions cannot be reopened for trading, and the MVP has no delete-history action. The stored archive state is `CLOSED`; its orders, fills, balances, allocations, grants, and journal are protected against further financial writes. Later stale-command rejections and recovery receipts may still append explanatory metadata without changing those financial records. History and exports identify the session and their recorded read boundary.
+
+History selections and filters survive reload and browser Back/Forward through validated URL values. These include the session, administrator account selection, record view, ID search, order side and status. An omitted session follows the active session; an explicitly selected archive remains selected. URL values never grant access. Pagination and temporary export links remain transient. Unrelated current-session activity does not refresh an archived summary; **Refresh records** explicitly reloads its summary, selected account and records, including later explanatory metadata.
 
 ## Failure behavior and audit history
 

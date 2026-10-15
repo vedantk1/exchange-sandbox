@@ -9,6 +9,7 @@ import {
 } from 'lightweight-charts';
 import { amount, timeLabel, units } from './amounts.js';
 import type { MarketView } from './types.js';
+import { CandleData } from './CandleData.js';
 
 export function CandleChart({ candles = [] }: { candles: MarketView['candles'] }) {
   const container = useRef<HTMLDivElement>(null);
@@ -39,6 +40,11 @@ export function CandleChart({ candles = [] }: { candles: MarketView['candles'] }
       wickDownColor: '#f18b83',
       priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
+    // The visible footer supplies keyboard/screen-reader attribution. Keep the
+    // library's duplicate visual logo out of this aria-hidden subtree's tab order.
+    for (const link of container.current.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+      link.tabIndex = -1;
+    }
     return () => {
       chart.current?.remove();
       chart.current = null;
@@ -72,11 +78,7 @@ export function CandleChart({ candles = [] }: { candles: MarketView['candles'] }
   return (
     <>
       <div className="trader-chart-area">
-        <div
-          ref={container}
-          className="trader-chart-canvas"
-          aria-label="One-minute candle chart of local executions"
-        />
+        <div ref={container} className="trader-chart-canvas" aria-hidden="true" />
         {candles.length === 0 && (
           <div className="trader-chart-empty">
             <span className="trader-empty-mark" aria-hidden="true">
@@ -133,6 +135,7 @@ export function PriceChart({ market }: { market: MarketView }) {
         </div>
       )}
       <CandleChart candles={market.candles ?? []} />
+      <CandleData candles={market.candles ?? []} />
       <div className="trader-chart-footer">
         <span>1m candles · UTC · no external price feed · empty intervals stay empty.</span>
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">

@@ -23,6 +23,7 @@ export function Dialog({
         <Primitive.Overlay className="dialog-overlay" />
         <Primitive.Content
           className="dialog-content"
+          aria-modal="true"
           aria-describedby={description ? descriptionId : undefined}
           onOpenAutoFocus={() => {
             returnFocus.current =

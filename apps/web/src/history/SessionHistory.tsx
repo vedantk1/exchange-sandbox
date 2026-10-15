@@ -18,6 +18,8 @@ import { AccountSearch } from './AccountSearch.js';
 import { ExportDialog } from './ExportDialog.js';
 import { HistoryRows } from './HistoryRows.js';
 import type { HistoryKind } from './types.js';
+import { useHistoryLocation } from './use-history-location.js';
+import type { HistoryLocation } from './history-location.js';
 import './history.css';
 import '../trader/trader.css';
 
@@ -32,29 +34,19 @@ export function SessionHistory({
   workspace,
   readOrder,
   readAccount,
-  initialAccountId,
 }: {
   workspace: WorkspaceView;
   readOrder: (id: string) => Promise<OrderDetailResponse>;
   readAccount: (id: string, sessionId?: string) => Promise<AccountView>;
-  initialAccountId?: string;
 }) {
   const admin = workspace.user.role === 'ADMIN';
   const actorId = workspace.user.accountId;
-  const [chosenSession, setChosenSession] = useState<string | null>(null);
+  const { value: selection, update: updateSelection } = useHistoryLocation(actorId, admin);
+  const { sessionId: chosenSession, accountId, kind, search, side, status } = selection;
   const sessionId = chosenSession ?? workspace.sessionId;
   const [extraSessions, setExtraSessions] = useState<SessionSummaryView[]>([]);
   const [sessionCursor, setSessionCursor] = useState<string | null>(null);
-  const [accountId, setAccountId] = useState<string | null>(
-    initialAccountId ?? (admin ? null : actorId),
-  );
-  const [accountLabel, setAccountLabel] = useState(
-    admin ? (initialAccountId ?? 'Choose a participant') : `@${workspace.user.handle}`,
-  );
-  const [kind, setKind] = useState<HistoryKind>(admin && !initialAccountId ? 'audit' : 'fills');
-  const [search, setSearch] = useState('');
-  const [side, setSide] = useState('ALL');
-  const [status, setStatus] = useState('ALL');
+  const [selectedLabel, setSelectedLabel] = useState<{ id: string; label: string } | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [previous, setPrevious] = useState<(string | null)[]>([]);
   const [orderLookup, setOrderLookup] = useState('');
@@ -72,10 +64,17 @@ export function SessionHistory({
     retry: false,
   });
   const history = useQuery({
-    queryKey: ['session-history', actorId, sessionId, workspace.cursor],
+    queryKey: [
+      'session-history',
+      actorId,
+      sessionId,
+      sessionId === workspace.sessionId ? workspace.cursor : 'archived',
+    ],
     queryFn: ({ signal }) =>
       api<HistoryView>(`/api/history/${sessionId}`, undefined, signal, actorId),
     retry: false,
+    staleTime: sessionId === workspace.sessionId ? 0 : Infinity,
+    refetchOnWindowFocus: sessionId === workspace.sessionId,
   });
   const inspectedAccount = useQuery({
     queryKey: [
@@ -138,6 +137,21 @@ export function SessionHistory({
   const archived = session?.state === 'CLOSED';
   const account = admin ? inspectedAccount.data : history.data?.account;
   const pendingAccount = admin && accountId && inspectedAccount.isPending;
+  const participant = workspace.admin?.traders.find((item) => item.accountId === accountId);
+  const system = [
+    { id: workspace.admin?.overview.feeAccountId, label: 'Fee account' },
+    { id: workspace.admin?.overview.issuanceAccountId, label: 'Issuance account' },
+    { id: workspace.admin?.overview.demoMarket?.makerAccountId, label: 'Simulator maker' },
+    { id: workspace.admin?.overview.demoMarket?.takerAccountId, label: 'Simulator taker' },
+  ].find((item) => item.id && item.id === accountId);
+  const accountLabel = !admin
+    ? `@${workspace.user.handle}`
+    : !accountId
+      ? 'Administrator audit'
+      : participant
+        ? `@${participant.handle}`
+        : (system?.label ??
+          (selectedLabel?.id === accountId ? selectedLabel.label : `Account ${accountId}`));
 
   async function loadSessions() {
     const after = sessionCursor ?? sessions.data?.nextCursor;
@@ -212,9 +226,9 @@ export function SessionHistory({
               aria-label="Trading session"
               value={sessionId}
               onChange={(event) =>
-                setChosenSession(
-                  event.target.value === workspace.sessionId ? null : event.target.value,
-                )
+                updateSelection({
+                  sessionId: event.target.value === workspace.sessionId ? null : event.target.value,
+                })
               }
             >
               {!availableSessions.some((item) => item.id === workspace.sessionId) && (
@@ -333,9 +347,11 @@ export function SessionHistory({
             selectedId={accountId}
             refreshKey={workspace.sessionId}
             onSelect={(participant) => {
-              setAccountId(participant.accountId);
-              setAccountLabel(`@${participant.handle}`);
-              if (kind === 'audit') setKind('orders');
+              updateSelection({
+                accountId: participant.accountId,
+                ...(kind === 'audit' ? { kind: 'orders' } : {}),
+              });
+              setSelectedLabel({ id: participant.accountId, label: `@${participant.handle}` });
             }}
           />
           {workspace.admin && (
@@ -358,9 +374,10 @@ export function SessionHistory({
                     className="button ghost small"
                     key={item.id}
                     onClick={() => {
-                      setAccountId(item.id!);
-                      setAccountLabel(item.name);
-                      if (kind === 'audit') setKind('activity');
+                      updateSelection({
+                        accountId: item.id!,
+                        ...(kind === 'audit' ? { kind: 'activity' } : {}),
+                      });
                     }}
                   >
                     {item.name}
@@ -369,9 +386,7 @@ export function SessionHistory({
               <button
                 className="button ghost small"
                 onClick={() => {
-                  setAccountId(null);
-                  setAccountLabel('Administrator audit');
-                  setKind('audit');
+                  updateSelection({ accountId: null, kind: 'audit' });
                 }}
               >
                 Administrator audit
@@ -439,7 +454,7 @@ export function SessionHistory({
                 key={item.id}
                 aria-pressed={kind === item.id}
                 className={kind === item.id ? 'active' : ''}
-                onClick={() => setKind(item.id)}
+                onClick={() => updateSelection({ kind: item.id })}
                 disabled={item.id !== 'audit' && !accountId}
               >
                 {item.label}
@@ -448,11 +463,17 @@ export function SessionHistory({
           </div>
           <button
             className="button ghost small"
-            disabled={page.isFetching}
+            disabled={
+              page.isFetching ||
+              history.isFetching ||
+              (admin && Boolean(accountId) && inspectedAccount.isFetching)
+            }
             onClick={() => {
               setCursor(null);
               setPrevious([]);
-              void page.refetch();
+              if (cursor === null) void page.refetch();
+              void history.refetch();
+              if (admin && accountId) void inspectedAccount.refetch();
             }}
           >
             Refresh records
@@ -463,7 +484,7 @@ export function SessionHistory({
             Find record by ID
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => updateSelection({ search: event.target.value }, true)}
               maxLength={80}
               placeholder="Search complete selected history"
             />
@@ -474,7 +495,9 @@ export function SessionHistory({
               <select
                 aria-label="Record side"
                 value={side}
-                onChange={(event) => setSide(event.target.value)}
+                onChange={(event) =>
+                  updateSelection({ side: event.target.value as HistoryLocation['side'] })
+                }
               >
                 <option value="ALL">Both sides</option>
                 <option value="BUY">Buy</option>
@@ -488,7 +511,9 @@ export function SessionHistory({
               <select
                 aria-label="Record status"
                 value={status}
-                onChange={(event) => setStatus(event.target.value)}
+                onChange={(event) =>
+                  updateSelection({ status: event.target.value as HistoryLocation['status'] })
+                }
               >
                 <option value="ALL">All statuses</option>
                 <option value="OPEN">Open</option>

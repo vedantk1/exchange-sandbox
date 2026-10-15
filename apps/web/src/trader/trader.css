@@ -240,6 +240,36 @@
   color: #a6c5d2;
   white-space: nowrap;
 }
+.trader-candle-data {
+  border-top: 1px solid #27333f;
+  font-size: 12px;
+}
+.trader-candle-data summary {
+  cursor: pointer;
+  padding: 12px 16px;
+  color: #d5e4ed;
+}
+.trader-candle-data summary span {
+  margin-left: 12px;
+  color: #98a8b8;
+  font-size: 11px;
+}
+.trader-candle-data p {
+  margin: 0;
+  padding: 0 16px 12px;
+  color: #98a8b8;
+  line-height: 1.6;
+}
+.trader-candle-data caption {
+  text-align: left;
+  padding: 8px 16px;
+  color: #d5e4ed;
+}
+.trader-candle-data tbody th {
+  background: transparent;
+  font-weight: 400;
+  font-size: 12px;
+}
 .trader-book {
   grid-column: 2;
   grid-row: 1 / 3;
