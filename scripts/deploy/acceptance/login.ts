@@ -50,7 +50,17 @@ export class AcceptanceJourneyError extends Error {
 export function formatLoginCheckpoint(value: unknown): string | undefined {
   if (!value || typeof value !== 'object') return;
   try {
-    const input = value as Record<string, unknown>;
+    const {
+      documentLoaded,
+      scriptRequests,
+      scriptResponses,
+      scriptHttpStatus,
+      scriptFailure,
+      session,
+      sessionFailure,
+      pageErrors,
+      capabilities,
+    } = value as Record<string, unknown>;
     const count = (candidate: unknown) =>
       typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= 0
         ? Math.min(candidate, 255)
@@ -58,24 +68,24 @@ export function formatLoginCheckpoint(value: unknown): string | undefined {
     const network = (candidate: unknown): NetworkFailure | null =>
       NETWORK_FAILURES.some((item) => item === candidate) ? (candidate as NetworkFailure) : null;
     const checkpoint: LoginBootstrapCheckpoint = {
-      documentLoaded: input.documentLoaded === true,
-      scriptRequests: count(input.scriptRequests),
-      scriptResponses: count(input.scriptResponses),
+      documentLoaded: documentLoaded === true,
+      scriptRequests: count(scriptRequests),
+      scriptResponses: count(scriptResponses),
       scriptHttpStatus:
-        typeof input.scriptHttpStatus === 'number' &&
-        Number.isInteger(input.scriptHttpStatus) &&
-        input.scriptHttpStatus >= 400 &&
-        input.scriptHttpStatus <= 599
-          ? input.scriptHttpStatus
+        typeof scriptHttpStatus === 'number' &&
+        Number.isInteger(scriptHttpStatus) &&
+        scriptHttpStatus >= 400 &&
+        scriptHttpStatus <= 599
+          ? scriptHttpStatus
           : null,
-      scriptFailure: network(input.scriptFailure),
-      session: SESSIONS.some((item) => item === input.session)
-        ? (input.session as LoginBootstrapCheckpoint['session'])
+      scriptFailure: network(scriptFailure),
+      session: SESSIONS.some((item) => item === session)
+        ? (session as LoginBootstrapCheckpoint['session'])
         : 'NOT_REQUESTED',
-      sessionFailure: network(input.sessionFailure),
-      pageErrors: count(input.pageErrors),
-      capabilities: CAPABILITIES.some((item) => item === input.capabilities)
-        ? (input.capabilities as Capability)
+      sessionFailure: network(sessionFailure),
+      pageErrors: count(pageErrors),
+      capabilities: CAPABILITIES.some((item) => item === capabilities)
+        ? (capabilities as Capability)
         : 'UNAVAILABLE',
     };
     return JSON.stringify(checkpoint);
@@ -123,10 +133,18 @@ function observe(page: Page, origin: string) {
     pageErrors: 0,
     capabilities: 'UNAVAILABLE',
   };
-  let settle!: (response: Response | undefined) => void;
-  const session = new Promise<Response | undefined>((resolve) => {
-    settle = resolve;
+  let resolve!: (response: Response | undefined) => void;
+  let settled: Readonly<LoginBootstrapCheckpoint> | undefined;
+  const session = new Promise<Response | undefined>((complete) => {
+    resolve = complete;
   });
+  const settle = (response: Response | undefined) => {
+    if (settled) return;
+    // Late responses or errors must not rewrite the condition that ended this
+    // observation window, including while navigation or capability probing waits.
+    settled = Object.freeze({ ...checkpoint });
+    resolve(response);
+  };
   const timer = setTimeout(() => settle(undefined), 12_000);
   const isSession = (request: Request) =>
     request.url() === `${origin}/api/auth/session` && request.method() === 'GET';
@@ -174,8 +192,13 @@ function observe(page: Page, origin: string) {
   page.on('requestfailed', failed);
   page.on('pageerror', runtimeError);
   return {
-    checkpoint,
     session,
+    loaded() {
+      checkpoint.documentLoaded = true;
+    },
+    snapshot() {
+      return { ...(settled ?? checkpoint), documentLoaded: checkpoint.documentLoaded };
+    },
     close() {
       clearTimeout(timer);
       settle(undefined);
@@ -245,13 +268,12 @@ export async function openLoginPage(
       throw new AcceptanceJourneyError(
         `${prefix}_DOCUMENT_HTTP_${status >= 100 && status <= 599 ? status : 'OTHER'}_FAILED`,
       );
-    observer.checkpoint.documentLoaded = true;
+    observer.loaded();
     const response = await observer.session;
     if (!response) {
-      observer.checkpoint.capabilities = await capabilities(page);
-      throw new AcceptanceJourneyError(`${prefix}_${reason(observer.checkpoint)}_FAILED`, {
-        ...observer.checkpoint,
-      });
+      const checkpoint = observer.snapshot();
+      checkpoint.capabilities = await capabilities(page);
+      throw new AcceptanceJourneyError(`${prefix}_${reason(checkpoint)}_FAILED`, checkpoint);
     }
     const sessionStatus = response.status();
     if (sessionStatus !== 401)
