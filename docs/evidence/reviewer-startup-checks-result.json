@@ -1,0 +1,319 @@
+{
+  "formatVersion": 1,
+  "generatedAt": "2026-10-15T11:44:32.357Z",
+  "kind": "fresh-compose-https-startup-checks",
+  "status": "passed",
+  "requestedRuns": 5,
+  "attemptedRuns": 5,
+  "passedRuns": 5,
+  "overallBudgetMilliseconds": 600000,
+  "firstFailure": null,
+  "runs": [
+    {
+      "attempt": 1,
+      "acceptance": {
+        "formatVersion": 1,
+        "generatedAt": "2026-10-15T11:42:10.694Z",
+        "kind": "fresh-compose-https-acceptance",
+        "status": "passed",
+        "stage": "complete",
+        "source": {
+          "commit": "9a3545adbbae32ef233f1d35525e914e2de7adb6",
+          "dirty": false
+        },
+        "images": {
+          "api": {
+            "id": "sha256:80542ecbb0e6606601231e22de0611a1889c3d66de1e4c9f8888244262b15aff",
+            "revision": "9a3545adbbae32ef233f1d35525e914e2de7adb6"
+          },
+          "web": {
+            "id": "sha256:0fd9e4f0f30b4251dc64ffd26023b39b349f18a461a2efcdf7084de4874ef938",
+            "revision": "9a3545adbbae32ef233f1d35525e914e2de7adb6"
+          },
+          "postgres": {
+            "id": "sha256:c14be09d80346e5d7716a191b61a60347be1783e177e52da118bcd40bf426f14",
+            "revision": null
+          }
+        },
+        "checks": {
+          "freshInstallation": true,
+          "supportedOwnerInitialization": true,
+          "interactiveAdministratorSetup": true,
+          "restrictedRuntime": true,
+          "runningImageIdentity": true,
+          "httpsIdentityVerified": true,
+          "compiledUiLogin": true,
+          "invitationRedemption": true,
+          "csrfProtection": true,
+          "secureSessionCookies": true,
+          "partialFillAndCancellation": true,
+          "liveUpdates": true,
+          "traderExportReconciliation": true,
+          "adminExportReconciliation": true,
+          "crossAccountExportDenied": true,
+          "sessionPreservedAfterRestart": true,
+          "originalReceiptReplay": true,
+          "restartAccountingPreserved": true,
+          "operationalDiagnostics": true
+        },
+        "cleanup": {
+          "containersRemoved": true,
+          "volumesRemoved": true,
+          "networksRemoved": true,
+          "privateFilesRemoved": true
+        },
+        "tls": {
+          "serverValidation": "Node HTTPS requires the generated Caddy CA and localhost hostname.",
+          "browserTrust": "An isolated Chromium exception is limited to the leaf public key after Node validation; no global TLS bypass or host trust-store changes."
+        },
+        "scope": "Generated isolated Compose installation only. API retains its normal restricted role and container resource limits. This is acceptance evidence, not a capacity benchmark or proof of real-money readiness."
+      },
+      "failure": null
+    },
+    {
+      "attempt": 2,
+      "acceptance": {
+        "formatVersion": 1,
+        "generatedAt": "2026-10-15T11:42:46.757Z",
+        "kind": "fresh-compose-https-acceptance",
+        "status": "passed",
+        "stage": "complete",
+        "source": {
+          "commit": "9a3545adbbae32ef233f1d35525e914e2de7adb6",
+          "dirty": false
+        },
+        "images": {
+          "api": {
+            "id": "sha256:80542ecbb0e6606601231e22de0611a1889c3d66de1e4c9f8888244262b15aff",
+            "revision": "9a3545adbbae32ef233f1d35525e914e2de7adb6"
+          },
+          "web": {
+            "id": "sha256:0fd9e4f0f30b4251dc64ffd26023b39b349f18a461a2efcdf7084de4874ef938",
+            "revision": "9a3545adbbae32ef233f1d35525e914e2de7adb6"
+          },
+          "postgres": {
+            "id": "sha256:c14be09d80346e5d7716a191b61a60347be1783e177e52da118bcd40bf426f14",
+            "revision": null
+          }
+        },
+        "checks": {
+          "freshInstallation": true,
+          "supportedOwnerInitialization": true,
+          "interactiveAdministratorSetup": true,
+          "restrictedRuntime": true,
+          "runningImageIdentity": true,
+          "httpsIdentityVerified": true,
+          "compiledUiLogin": true,
+          "invitationRedemption": true,
+          "csrfProtection": true,
+          "secureSessionCookies": true,
+          "partialFillAndCancellation": true,
+          "liveUpdates": true,
+          "traderExportReconciliation": true,
+          "adminExportReconciliation": true,
+          "crossAccountExportDenied": true,
+          "sessionPreservedAfterRestart": true,
+          "originalReceiptReplay": true,
+          "restartAccountingPreserved": true,
+          "operationalDiagnostics": true
+        },
+        "cleanup": {
+          "containersRemoved": true,
+          "volumesRemoved": true,
+          "networksRemoved": true,
+          "privateFilesRemoved": true
+        },
+        "tls": {
+          "serverValidation": "Node HTTPS requires the generated Caddy CA and localhost hostname.",
+          "browserTrust": "An isolated Chromium exception is limited to the leaf public key after Node validation; no global TLS bypass or host trust-store changes."
+        },
+        "scope": "Generated isolated Compose installation only. API retains its normal restricted role and container resource limits. This is acceptance evidence, not a capacity benchmark or proof of real-money readiness."
+      },
+      "failure": null
+    },
+    {
+      "attempt": 3,
+      "acceptance": {
+        "formatVersion": 1,
+        "generatedAt": "2026-10-15T11:43:22.850Z",
+        "kind": "fresh-compose-https-acceptance",
+        "status": "passed",
+        "stage": "complete",
+        "source": {
+          "commit": "9a3545adbbae32ef233f1d35525e914e2de7adb6",
+          "dirty": false
+        },
+        "images": {
+          "api": {
+            "id": "sha256:80542ecbb0e6606601231e22de0611a1889c3d66de1e4c9f8888244262b15aff",
+            "revision": "9a3545adbbae32ef233f1d35525e914e2de7adb6"
+          },
+          "web": {
+            "id": "sha256:0fd9e4f0f30b4251dc64ffd26023b39b349f18a461a2efcdf7084de4874ef938",
+            "revision": "9a3545adbbae32ef233f1d35525e914e2de7adb6"
+          },
+          "postgres": {
+            "id": "sha256:c14be09d80346e5d7716a191b61a60347be1783e177e52da118bcd40bf426f14",
+            "revision": null
+          }
+        },
+        "checks": {
+          "freshInstallation": true,
+          "supportedOwnerInitialization": true,
+          "interactiveAdministratorSetup": true,
+          "restrictedRuntime": true,
+          "runningImageIdentity": true,
+          "httpsIdentityVerified": true,
+          "compiledUiLogin": true,
+          "invitationRedemption": true,
+          "csrfProtection": true,
+          "secureSessionCookies": true,
+          "partialFillAndCancellation": true,
+          "liveUpdates": true,
+          "traderExportReconciliation": true,
+          "adminExportReconciliation": true,
+          "crossAccountExportDenied": true,
+          "sessionPreservedAfterRestart": true,
+          "originalReceiptReplay": true,
+          "restartAccountingPreserved": true,
+          "operationalDiagnostics": true
+        },
+        "cleanup": {
+          "containersRemoved": true,
+          "volumesRemoved": true,
+          "networksRemoved": true,
+          "privateFilesRemoved": true
+        },
+        "tls": {
+          "serverValidation": "Node HTTPS requires the generated Caddy CA and localhost hostname.",
+          "browserTrust": "An isolated Chromium exception is limited to the leaf public key after Node validation; no global TLS bypass or host trust-store changes."
+        },
+        "scope": "Generated isolated Compose installation only. API retains its normal restricted role and container resource limits. This is acceptance evidence, not a capacity benchmark or proof of real-money readiness."
+      },
+      "failure": null
+    },
+    {
+      "attempt": 4,
+      "acceptance": {
+        "formatVersion": 1,
+        "generatedAt": "2026-10-15T11:43:57.865Z",
+        "kind": "fresh-compose-https-acceptance",
+        "status": "passed",
+        "stage": "complete",
+        "source": {
+          "commit": "9a3545adbbae32ef233f1d35525e914e2de7adb6",
+          "dirty": false
+        },
+        "images": {
+          "api": {
+            "id": "sha256:80542ecbb0e6606601231e22de0611a1889c3d66de1e4c9f8888244262b15aff",
+            "revision": "9a3545adbbae32ef233f1d35525e914e2de7adb6"
+          },
+          "web": {
+            "id": "sha256:0fd9e4f0f30b4251dc64ffd26023b39b349f18a461a2efcdf7084de4874ef938",
+            "revision": "9a3545adbbae32ef233f1d35525e914e2de7adb6"
+          },
+          "postgres": {
+            "id": "sha256:c14be09d80346e5d7716a191b61a60347be1783e177e52da118bcd40bf426f14",
+            "revision": null
+          }
+        },
+        "checks": {
+          "freshInstallation": true,
+          "supportedOwnerInitialization": true,
+          "interactiveAdministratorSetup": true,
+          "restrictedRuntime": true,
+          "runningImageIdentity": true,
+          "httpsIdentityVerified": true,
+          "compiledUiLogin": true,
+          "invitationRedemption": true,
+          "csrfProtection": true,
+          "secureSessionCookies": true,
+          "partialFillAndCancellation": true,
+          "liveUpdates": true,
+          "traderExportReconciliation": true,
+          "adminExportReconciliation": true,
+          "crossAccountExportDenied": true,
+          "sessionPreservedAfterRestart": true,
+          "originalReceiptReplay": true,
+          "restartAccountingPreserved": true,
+          "operationalDiagnostics": true
+        },
+        "cleanup": {
+          "containersRemoved": true,
+          "volumesRemoved": true,
+          "networksRemoved": true,
+          "privateFilesRemoved": true
+        },
+        "tls": {
+          "serverValidation": "Node HTTPS requires the generated Caddy CA and localhost hostname.",
+          "browserTrust": "An isolated Chromium exception is limited to the leaf public key after Node validation; no global TLS bypass or host trust-store changes."
+        },
+        "scope": "Generated isolated Compose installation only. API retains its normal restricted role and container resource limits. This is acceptance evidence, not a capacity benchmark or proof of real-money readiness."
+      },
+      "failure": null
+    },
+    {
+      "attempt": 5,
+      "acceptance": {
+        "formatVersion": 1,
+        "generatedAt": "2026-10-15T11:44:32.356Z",
+        "kind": "fresh-compose-https-acceptance",
+        "status": "passed",
+        "stage": "complete",
+        "source": {
+          "commit": "9a3545adbbae32ef233f1d35525e914e2de7adb6",
+          "dirty": false
+        },
+        "images": {
+          "api": {
+            "id": "sha256:80542ecbb0e6606601231e22de0611a1889c3d66de1e4c9f8888244262b15aff",
+            "revision": "9a3545adbbae32ef233f1d35525e914e2de7adb6"
+          },
+          "web": {
+            "id": "sha256:0fd9e4f0f30b4251dc64ffd26023b39b349f18a461a2efcdf7084de4874ef938",
+            "revision": "9a3545adbbae32ef233f1d35525e914e2de7adb6"
+          },
+          "postgres": {
+            "id": "sha256:c14be09d80346e5d7716a191b61a60347be1783e177e52da118bcd40bf426f14",
+            "revision": null
+          }
+        },
+        "checks": {
+          "freshInstallation": true,
+          "supportedOwnerInitialization": true,
+          "interactiveAdministratorSetup": true,
+          "restrictedRuntime": true,
+          "runningImageIdentity": true,
+          "httpsIdentityVerified": true,
+          "compiledUiLogin": true,
+          "invitationRedemption": true,
+          "csrfProtection": true,
+          "secureSessionCookies": true,
+          "partialFillAndCancellation": true,
+          "liveUpdates": true,
+          "traderExportReconciliation": true,
+          "adminExportReconciliation": true,
+          "crossAccountExportDenied": true,
+          "sessionPreservedAfterRestart": true,
+          "originalReceiptReplay": true,
+          "restartAccountingPreserved": true,
+          "operationalDiagnostics": true
+        },
+        "cleanup": {
+          "containersRemoved": true,
+          "volumesRemoved": true,
+          "networksRemoved": true,
+          "privateFilesRemoved": true
+        },
+        "tls": {
+          "serverValidation": "Node HTTPS requires the generated Caddy CA and localhost hostname.",
+          "browserTrust": "An isolated Chromium exception is limited to the leaf public key after Node validation; no global TLS bypass or host trust-store changes."
+        },
+        "scope": "Generated isolated Compose installation only. API retains its normal restricted role and container resource limits. This is acceptance evidence, not a capacity benchmark or proof of real-money readiness."
+      },
+      "failure": null
+    }
+  ],
+  "scope": "Independent fresh Compose installations using the same clean source and image identities. Existing acceptance, HTTPS verification, login budgets and scoped cleanup are unchanged. Failed attempts are not retried. Repetition is not a capacity benchmark or proof that an intermittent failure is fixed."
+}
