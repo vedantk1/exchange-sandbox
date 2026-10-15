@@ -145,7 +145,7 @@ The reproducible workload measures committed matching commands against real Post
 
 ## Recorded local operational results
 
-The fresh Compose HTTPS journey passed locally on 2026-10-15; a real SIGTERM before browser traffic also produced a failed report with all cleanup checks verified. The final clean-revision report is being finalized. The earlier operational results below retain their original scope. A new remote CI result is established only after the corresponding commit is published and its workflow completes.
+The 2026-10-15 [fresh Compose acceptance report](evidence/self-host-acceptance-result.json) records a clean-source local run of commit `e2e128c` with CI checks enabled. All 18 setup/HTTPS/journey checks and all four cleanup checks passed; the running API/web image IDs and revision labels matched that source. All three image targets rebuilt successfully. A separate real SIGTERM before browser traffic produced a failed report with every cleanup check verified, and the fallback cleanup command passed again with no recorded runs left. These are local macOS/Docker results. The earlier operational results below retain their original scope; remote Linux CI is established only after this milestone is published and its workflow completes.
 
 The 2026-10-14 [self-host report](evidence/container-smoke-result.json) records actual container builds and HTTPS requests through Caddy using an explicitly trusted local CA. It covers deep-link routing, secure cookies, CSRF, invitations, protected market execution, exact accounting, SSE proxy delivery, rollover, archives, and original receipt replay. The API's non-root user and restricted database connection were checked separately. Test-owned containers and volumes were removed afterward.
 
