@@ -10,6 +10,7 @@ if (
   mode !== 'browser' &&
   mode !== 'demo' &&
   mode !== 'dev' &&
+  mode !== 'portfolio' &&
   mode !== 'setup' &&
   mode !== 'reset' &&
   mode !== 'migrate' &&
@@ -19,7 +20,7 @@ if (
   mode !== 'benchmark-candles'
 ) {
   throw new Error(
-    'Usage: tsx scripts/with-postgres.ts <test|browser|demo|dev|setup|reset|migrate|restore|benchmark|large-session-benchmark|benchmark-candles>',
+    'Usage: tsx scripts/with-postgres.ts <test|browser|demo|dev|portfolio|setup|reset|migrate|restore|benchmark|large-session-benchmark|benchmark-candles>',
   );
 }
 
@@ -30,6 +31,7 @@ const metadataPath = '.local/development-database.json';
 const connectionVariable =
   mode === 'test' ||
   mode === 'browser' ||
+  mode === 'portfolio' ||
   mode === 'restore' ||
   mode === 'benchmark' ||
   mode === 'large-session-benchmark' ||
@@ -174,15 +176,18 @@ async function runChild(connectionString: string): Promise<number> {
               ? ['node_modules/@playwright/test/cli.js', 'test', ...process.argv.slice(3)]
               : mode === 'demo'
                 ? ['--import', 'tsx', 'apps/server/src/demo.ts']
-                : mode === 'dev'
-                  ? ['--import', 'tsx', 'scripts/dev.ts']
-                  : ['--import', 'tsx', 'apps/server/src/operator-cli.ts', mode!];
+                : mode === 'portfolio'
+                  ? ['--import', 'tsx', 'scripts/portfolio/serve.ts']
+                  : mode === 'dev'
+                    ? ['--import', 'tsx', 'scripts/dev.ts']
+                    : ['--import', 'tsx', 'apps/server/src/operator-cli.ts', mode!];
   return new Promise<number>((resolve, reject) => {
     child = spawn(process.execPath, arguments_, {
       stdio: 'inherit',
       env: {
         ...process.env,
-        ...(mode === 'dev' ? { NODE_ENV: 'development' } : {}),
+        ...(mode === 'dev' || mode === 'portfolio' ? { NODE_ENV: 'development' } : {}),
+        ...(mode === 'portfolio' ? { PORTFOLIO_OWNED_DATABASE: '1' } : {}),
         [connectionVariable]: connectionString,
       },
     });
@@ -203,6 +208,8 @@ process.on('SIGINT', forwardInterrupt);
 process.on('SIGTERM', forwardTerminate);
 
 try {
+  if (mode === 'portfolio' && externalUrl)
+    throw new LocalDatabaseError('PORTFOLIO_REQUIRES_TEMP_DATABASE');
   let connectionString = externalUrl;
   if (!connectionString) {
     // Load the native dependency only when needed: an external database also

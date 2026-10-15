@@ -21,6 +21,7 @@
     "build:web": "pnpm --filter @sandbox/web build",
     "check": "pnpm typecheck && pnpm format:check && pnpm test && pnpm test:integration && pnpm build:web && pnpm test:browser",
     "dev": "tsx scripts/with-postgres.ts dev",
+    "portfolio:serve": "tsx scripts/with-postgres.ts portfolio",
     "admin:setup": "tsx scripts/with-postgres.ts setup",
     "admin:reset": "tsx scripts/with-postgres.ts reset",
     "db:migrate": "tsx scripts/with-postgres.ts migrate",

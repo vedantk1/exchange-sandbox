@@ -2,7 +2,17 @@
 
 A self-hostable simulated spot exchange for developers and technical learners. Trade virtual BTC-SIM / USD-SIM and inspect how orders, fills, fees, and balances change. Real money, custody, and external exchange connections are outside scope.
 
-The prototype includes a browser trading workspace, an administrator control room, invitation-only authentication, and the transactional exchange core. Live updates keep order, balance, and market views synchronized with committed PostgreSQL state.
+The application includes a browser trading workspace, an administrator control room, invitation-only authentication, and a transactional exchange core. Live updates keep orders, balances, and market views synchronized with committed PostgreSQL state.
+
+[Watch the trader walkthrough](docs/media/trader-walkthrough.webm) · [Read the engineering case study](docs/CASE_STUDY.md) · [See the architecture](docs/ARCHITECTURE.md)
+
+![Trader workspace with synthetic executions and exact balances](docs/screenshots/trader-demo.png)
+
+Three engineering decisions to inspect:
+
+- **Exact accounting and recoverable commands.** Integer amounts, a double-entry journal, and atomic receipts preserve the original financial outcome across retries and process loss. [Implementation and failure tests](docs/CASE_STUDY.md#exact-amounts-and-one-durable-command-identity).
+- **A deliberate PostgreSQL consistency boundary.** Serialized mutations keep matching, reservations, and accounting atomic; committed snapshots serve concurrent reads. [Tradeoffs and measured contention](docs/CASE_STUDY.md#why-postgresql-owns-the-consistency-boundary).
+- **A measured historical-query improvement.** Identical complete candles on a disclosed 105,000-fill fixture, with warm SQL p50 reduced from 28.520 ms to 1.852 ms. [Method, index cost, and limits](docs/CASE_STUDY.md#a-measured-historical-query-improvement).
 
 ## Run locally
 
@@ -32,32 +42,18 @@ pnpm check
 
 The demo, integration, and browser test runners start real, temporary PostgreSQL 18 instances on loopback. Docker and an existing database are not required. Temporary database data is removed after the command finishes. The [development guide](docs/DEVELOPMENT.md) explains persistent databases, individual checks, and recovery tests.
 
-## What the core demonstrates
+## What you can try
 
-- Price/time matching at the resting order's price, including partial fills and self-trade prevention.
-- Exact scaled-integer quantities, prices, reservations, and fees; decimal strings at the service boundary.
-- Atomic orders, fills, double-entry journal entries, balance projections, command receipts, and notification records.
-- Database-protected accepted order terms, retained order rows, and runtime updates restricted to execution state.
-- Pinned migration checksums, explicit schema-verified adoption for older installations, and a frozen historical upgrade fixture that preserves exact accounting and receipt recovery.
-- Cancellation of remaining quantity with no duplicated fund release.
-- Protected market orders with a server-bound 5% price guard, a 10-second preview, immediate execution, and explicit canceled remainders.
-- Durable command identity: retries resolve the original outcome, while changed payloads are rejected.
-- Bounded database work and shutdown, isolated market reads, coherent admission timestamps, and frontend recovery that preserves unresolved commands.
-- Process-local operational diagnostics for request/command correlation, database budgets, lock waits, live connections, exports, simulator cycles, and recovery state.
-- Startup reconciliation and tests that kill an actual application process before commit or after commit but before acknowledgement.
-- Hashed credentials and tokens, transactional invitation redemption, session revocation, and CSRF-protected API commands.
-- Audited pause/resume, grants, administrative cancellation, and suspension with fault-safe access revocation.
-- Trader screens with a live order book, internal execution candles, reviewed limit and protected market orders, cancellation, exact balances, and linked activity/history.
-- Administrator screens for invitations, access recovery, participants, system accounts, market controls, reviewed grants, and audit history.
-- Reconnectable authorized SSE invalidations, consistent workspace snapshots, and browser request identity preserved across refreshes after uncertain responses.
-- An administrator-managed two-account simulator with generation-fenced start/stop, persisted command plans, visible inventory limits, reviewed funding, and honest sparse-chart states.
-- Browser regressions against real PostgreSQL, including uncertain-response recovery, simulator controls, rollover, archived balances, and actual CSV downloads, with failure traces/screenshots retained in CI.
-- Durable session rollover, exactly-once allocations, read-only financial archives, and recovery of the original transition after process loss.
-- Complete keyset history pagination and account/order lookup, plus native CSV downloads from one recorded snapshot with exact row counts, hashes, and expiry.
-- A self-host Compose package with pinned images, lockfile-managed runtime tooling, HTTPS proxying, owner migrations, a restricted application role, and an isolated HTTPS acceptance journey covering trading, complete exports, restart recovery, and verified cleanup.
-- Reproducible restore exercises and large-session HTTP/chart benchmarks with disclosed workloads and resource measurements.
+- Review limit and protected market orders, follow partial fills, cancel remainders, and inspect exact reservations and fees. Market previews bind a 5% price guard and expire after 10 seconds.
+- Read internal execution candles visually or as an exact UTC table. Sparse and empty history are explained explicitly.
+- Operate the two-account simulator, review inventory/funding shortfalls, and pause, resume, or stop it through audited administrator controls.
+- Rotate credentials, issue invitations and recovery links, suspend access, and inspect participant accounts.
+- Roll over sessions, revisit read-only financial archives, filter complete history, and download scoped CSV bundles from a coherent snapshot.
+- Inspect recovery, migration/restore evidence, and bounded private diagnostics. The [acceptance map](docs/RELEASE.md#mvp-acceptance-evidence) links product flows to their tests.
 
-The architecture is a modular monolith with PostgreSQL as the authority. Serializing mutations gives this single-market prototype an understandable consistency boundary. The reproducible workload and restore exercise are described in the [release guide](docs/RELEASE.md). Measurements apply to their explicit test configuration.
+![Administrator overview with simulator controls and inventory](docs/screenshots/admin-simulator.png)
+
+The architecture is a modular monolith with PostgreSQL as the authority. The [case study](docs/CASE_STUDY.md) explains the choices; the [release guide](docs/RELEASE.md) records workload, restore, and self-host evidence with their limits.
 
 ## Continuous integration
 
@@ -70,6 +66,7 @@ Recorded results and their limits are documented in the [development evidence](d
 ## Project documentation
 
 - [MVP features and user flows](docs/MVP.md): accepted product rules and full-release acceptance criteria.
+- [Engineering case study](docs/CASE_STUDY.md): decisions, failure recovery, measured improvements, and limits.
 - [System architecture and stack](docs/ARCHITECTURE.md): accepted design, alternatives, boundaries, and future work.
 - [Development and validation](docs/DEVELOPMENT.md): local commands, core API, persistence, and test evidence.
 - [HTTP API](docs/API.md): routes, authentication, request examples, and retry behavior.
