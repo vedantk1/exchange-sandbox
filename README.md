@@ -6,8 +6,6 @@ The application includes a browser trading workspace, an administrator control r
 
 [Watch the trader walkthrough](docs/media/trader-walkthrough.webm) · [Read the engineering case study](docs/CASE_STUDY.md) · [See the architecture](docs/ARCHITECTURE.md)
 
-![Trader workspace with synthetic executions and exact balances](docs/screenshots/trader-demo.png)
-
 Three engineering decisions to inspect:
 
 - **Exact accounting and recoverable commands.** Integer amounts, a double-entry journal, and atomic receipts preserve the original financial outcome across retries and process loss. [Implementation and failure tests](docs/CASE_STUDY.md#exact-amounts-and-one-durable-command-identity).
@@ -66,8 +64,6 @@ The demo, integration, and browser test runners start real, temporary PostgreSQL
 - Roll over sessions, revisit read-only financial archives, filter complete history, and download scoped CSV bundles from a coherent snapshot.
 - Inspect recovery, migration/restore evidence, and bounded private diagnostics. The [acceptance map](docs/RELEASE.md#mvp-acceptance-evidence) links product flows to their tests.
 
-![Administrator overview with simulator controls and inventory](docs/screenshots/admin-simulator.png)
-
 The architecture is a modular monolith with PostgreSQL as the authority. The [case study](docs/CASE_STUDY.md) explains the choices; the [release guide](docs/RELEASE.md) records workload, restore, and self-host evidence with their limits.
 
 ## Continuous integration
@@ -88,7 +84,7 @@ Recorded results and their limits are documented in the [development evidence](d
 - [Development and validation](docs/DEVELOPMENT.md): local commands, core API, persistence, and test evidence.
 - [HTTP API](docs/API.md): routes, authentication, request examples, and retry behavior.
 - [Operations and troubleshooting](docs/OPERATIONS.md): private diagnostics, signal interpretation, and safe recovery steps.
-- [Release and walkthrough](docs/RELEASE.md): reviewer launch, self-host packaging, acceptance evidence, restore/workload exercises, screenshots, and contribution guidance.
+- [Release and walkthrough](docs/RELEASE.md): reviewer launch, self-host packaging, acceptance evidence, restore/workload exercises, and contribution guidance.
 - [v0.1.0 release notes](docs/releases/v0.1.0.md): initial release features, requirements and known limitations.
 
 Workspace snapshots show bounded recent history; complete pages reach older records. Exports explicitly reject oversized bundles instead of silently truncating. Real funds remain outside scope.

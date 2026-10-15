@@ -46,9 +46,9 @@ test('reviewed rollover preserves final records and resets connected trader form
   try {
     await login(traderPage, application.origin, 'seller');
     if (process.env.CAPTURE_PORTFOLIO_SCREENSHOTS === '1') {
-      await mkdir('docs/screenshots', { recursive: true });
+      await mkdir('output/playwright/portfolio', { recursive: true });
       await traderPage.screenshot({
-        path: 'docs/screenshots/trading-workspace.png',
+        path: 'output/playwright/portfolio/trading-workspace.png',
         fullPage: true,
       });
     }
@@ -115,7 +115,7 @@ test('reviewed rollover preserves final records and resets connected trader form
       await traderPage.getByRole('button', { name: 'Dismiss session change' }).click();
       await traderPage.getByRole('heading', { name: 'Sessions & history', exact: true }).click();
       await traderPage.screenshot({
-        path: 'docs/screenshots/archived-session.png',
+        path: 'output/playwright/portfolio/archived-session.png',
         fullPage: true,
       });
     }
