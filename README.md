@@ -4,7 +4,7 @@ A self-hostable simulated spot exchange for developers and technical learners. T
 
 The application includes a browser trading workspace, an administrator control room, invitation-only authentication, and a transactional exchange core. Live updates keep orders, balances, and market views synchronized with committed PostgreSQL state.
 
-[Watch the trader walkthrough](docs/media/trader-walkthrough.webm) · [Read the engineering case study](docs/CASE_STUDY.md) · [See the architecture](docs/ARCHITECTURE.md)
+[Read the engineering case study](docs/CASE_STUDY.md) · [See the architecture](docs/ARCHITECTURE.md)
 
 Three engineering decisions to inspect:
 

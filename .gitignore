@@ -12,7 +12,7 @@ output/playwright/
 *.tsbuildinfo
 .DS_Store
 
-# Image assets and screenshots stay local.
+# Image and video assets stay local.
 *.[pP][nN][gG]
 *.[jJ][pP][gG]
 *.[jJ][pP][eE][gG]
@@ -24,3 +24,7 @@ output/playwright/
 *.[bB][mM][pP]
 *.[tT][iI][fF]
 *.[tT][iI][fF][fF]
+*.[wW][eE][bB][mM]
+*.[mM][pP]4
+*.[mM][oO][vV]
+*.[mM]4[vV]
