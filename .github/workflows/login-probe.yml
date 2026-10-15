@@ -1,0 +1,46 @@
+name: Reproduce packaged login only
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  login_probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Build the exact self-host images
+        run: |
+          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" --target api -t spot-exchange-simulator-api:login-probe .
+          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" --target web -t spot-exchange-simulator-web:login-probe .
+      - name: Generate the scoped login-only runner
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('scripts/deploy/verify-self-host.ts').read_text()
+          old = "import { runJourney, AcceptanceJourneyError } from './acceptance/journey.js';"
+          assert source.count(old) == 1
+          source = source.replace(old, "import { runJourney } from '../../scripts/deploy/acceptance/ci-login-probe.js';\nimport { AcceptanceJourneyError } from '../../scripts/deploy/acceptance/login.js';")
+          source = source.replace("from './acceptance/", "from '../../scripts/deploy/acceptance/")
+          old = "process.exitCode = result.report.status === 'passed' ? 0 : 1;"
+          assert source.count(old) == 1
+          source = source.replace(old, "process.exitCode = !result.failure && result.report.stage === 'complete' && result.report.checks.compiledUiLogin === true && Object.values(result.report.cleanup).every(Boolean) ? 0 : 1;")
+          old = 'Self-host acceptance ${report.status};'
+          assert source.count(old) == 1
+          source = source.replace(old, "Login-only probe ${checks.compiledUiLogin === true ? 'passed' : 'failed'};")
+          Path('.local/login-repro').mkdir(parents=True, exist_ok=True)
+          Path('.local/login-repro/ci-runner.ts').write_text(source)
+          PY
+      - name: Run at most five login-only browsers
+        timeout-minutes: 10
+        run: pnpm exec tsx .local/login-repro/ci-runner.ts spot-exchange-simulator-api:login-probe spot-exchange-simulator-web:login-probe
+      - name: Verify scoped cleanup
+        if: always()
+        run: pnpm selfhost:acceptance:cleanup
