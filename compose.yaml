@@ -10,7 +10,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -U sandbox_owner -d exchange']
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U sandbox_owner -d exchange']
       interval: 5s
       timeout: 5s
       retries: 20
@@ -138,11 +138,11 @@ services:
 
 secrets:
   owner_password:
-    file: .local/self-host/secrets/owner-password
+    file: ${SELF_HOST_DIRECTORY:-.local/self-host}/secrets/owner-password
   owner_database_url:
-    file: .local/self-host/secrets/owner-url
+    file: ${SELF_HOST_DIRECTORY:-.local/self-host}/secrets/owner-url
   runtime_database_url:
-    file: .local/self-host/secrets/runtime-url
+    file: ${SELF_HOST_DIRECTORY:-.local/self-host}/secrets/runtime-url
 
 volumes:
   postgres_data:

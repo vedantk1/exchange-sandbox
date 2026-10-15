@@ -334,16 +334,20 @@ Structured logs should identify request, command, exchange session, sequence, an
 
 Development uses bundled PostgreSQL, a backend watch process on loopback port 3001, and Vite on localhost port 3000; an existing PostgreSQL instance and explicit port overrides are supported. The self-host Compose package runs the API, PostgreSQL with durable storage, and a Caddy container serving the compiled frontend and HTTPS proxy. Owner migrations and runtime database permissions are separate. The proxy preserves streaming invalidations and explicit origin/cookie checks; its setup and verified scope are in [release verification](RELEASE.md). No hosted authentication, monitoring, or email account is necessary.
 
+Packaged acceptance uses that same Compose topology and resource restrictions in a new generated project, rather than seeding an existing installation or substituting a development server. Source revision labels and inspected immutable image IDs bind the evaluated API/web images to the recorded commit; CI additionally rejects dirty source. A host-only Python standard-library PTY bridge drives the ordinary interactive administrator command without adding a credential bypass to the product. The compiled HTTPS journey covers invitations, partial fills/cancellation, exact account/journal/export reconciliation, role scope, secure cookies/CSRF, live delivery, and original receipt recovery after a graceful API restart. Separate integration process-kill tests cover crash boundaries.
+
+The acceptance controller owns an exclusive private run directory, generated configuration beneath it, explicit Compose settings, and independently labeled Docker resources. It validates isolation before startup. On completion or interruption, bounded cleanup verifies each exact resource's ownership before removal and retains private files whenever cleanup cannot be confirmed; CI has an always-run retry over validated recorded runs. HTTPS identity is first verified against the generated CA and hostname by Node. Only then does isolated Chromium receive an exception for that verified leaf public key, without modifying the host trust store or globally ignoring TLS errors. A reconstructed allowlist report records checks, source/image identity, cleanup, and scope; raw terminal/browser data and secrets never become CI artifacts. The [release guide](RELEASE.md#fresh-compose-acceptance) describes reproduction and the limits of these checks.
+
 ## Validation and delivery order
 
-| Layer                             | Evidence required                                                                                                                                              |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Domain unit and property tests    | Price/time priority, self-trade rule, exact fees, split-fill equivalence, price improvement, nonnegative spendable funds, balanced transfers                   |
-| Real PostgreSQL integration tests | Concurrent reservations, cancel/fill races, identical/conflicting command retries, pause boundary, grants, invitation/rollover races, journal/outbox atomicity |
-| Crash and recovery tests          | Failure before commit, after commit before response, after commit before publication, and between rollover stages                                              |
-| Authorization tests               | Cross-account data and commands denied; suspended/revoked sessions lose live and replay access; exports enforce scope                                          |
-| Browser tests                     | Accepted MVP cases A01 through A16, with realistic connection loss and session changes                                                                         |
-| Operational tests                 | Fresh installation, migration compatibility, backup/restore, bot restart, and coherent exports under ongoing trading                                           |
+| Layer                             | Evidence required                                                                                                                                                                  |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Domain unit and property tests    | Price/time priority, self-trade rule, exact fees, split-fill equivalence, price improvement, nonnegative spendable funds, balanced transfers                                       |
+| Real PostgreSQL integration tests | Concurrent reservations, cancel/fill races, identical/conflicting command retries, pause boundary, grants, invitation/rollover races, journal/outbox atomicity                     |
+| Crash and recovery tests          | Failure before commit, after commit before response, after commit before publication, and between rollover stages                                                                  |
+| Authorization tests               | Cross-account data and commands denied; suspended/revoked sessions lose live and replay access; exports enforce scope                                                              |
+| Browser tests                     | Accepted MVP cases A01 through A16, with realistic connection loss and session changes                                                                                             |
+| Operational tests                 | Fresh restricted Compose installation through compiled HTTPS UI, complete scoped CSVs, graceful API restart, verified cleanup, migration compatibility and separate backup/restore |
 
 Use a real disposable PostgreSQL database for transaction tests. Mocked repositories and SQLite cannot establish PostgreSQL lock or snapshot behavior. Tests should exercise guarantees and races, not merely repeat implementation statements.
 
@@ -363,6 +367,7 @@ Implementation order:
 10. Database protection for accepted order terms and retained order evidence — implemented.
 11. Indexed large-session candles/history, complete prepared CSV downloads, lifecycle regressions, and measured HTTP/SSE/export workloads — implemented; see the disclosed performance and memory results in the release guide.
 12. Pinned migration checksums, explicit legacy schema attestation, frozen historical upgrade evidence, and lockfile-managed production/operations tooling — implemented.
+13. Fresh Compose acceptance in CI, compiled HTTPS trading and complete exports, graceful API restart recovery, scoped cleanup and sanitized source/image-bound evidence — implemented; final validation is recorded separately in the development and release guides.
 
 These increments are implementation order, not separate weakened definitions of done. Accounting and recovery are prerequisites for the polished trading experience.
 

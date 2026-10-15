@@ -45,7 +45,7 @@ Screenshots come from isolated browser-test accounts and virtual funds. They con
 
 Base images are pinned by version and digest. Workspace dependencies install from the frozen lockfile. The exact TypeScript loader version is a server production dependency, so its complete dependency graph comes from that lockfile in both API and operations images. Commands use `node --import ./apps/server/node_modules/tsx/dist/loader.mjs`; there is no global loader installation. The pinned global pnpm bootstrap installs the workspace. Owner credentials belong only to migration and explicitly invoked operation tooling. The application runs as an unprivileged container user and uses a separate restricted database role. Its startup verifies migration names, checksums, and metadata structure rather than running DDL. Administrator creation and credential recovery remain interactive owner commands with hidden password entry; no universal administrator credentials are installed.
 
-Generated configuration and secrets live under ignored `.local/self-host/`. Preparation requires an explicit HTTPS origin and preserves existing files rather than replacing credentials. Keep these files and persistent volumes private. Use a hostname you control, with DNS and ports configured for that machine. Caddy obtains the certificate for the configured hostname. For owner-local verification, `localhost` uses Caddy's private development authority; trust its exported root certificate explicitly in the client rather than disabling certificate verification.
+Generated configuration and secrets live under ignored `.local/self-host/`. Preparation requires an explicit HTTPS origin and refuses an existing target directory without changing its files or permissions. Keep these files and persistent volumes private. Use a hostname you control, with DNS and ports configured for that machine. Caddy obtains the certificate for the configured hostname. For owner-local verification, `localhost` uses Caddy's private development authority; trust its exported root certificate explicitly in the client rather than disabling certificate verification. `selfhost:prepare <https-origin> --directory <fresh-relative-directory>` supports a separate installation; use that directory's generated `compose.env` for every Compose command.
 
 ```sh
 pnpm selfhost:prepare https://exchange.example
@@ -94,6 +94,36 @@ After building API and operations images, reproduce the runtime check with `pnpm
 
 Static `/assets/*` paths use file-only routing. Missing deployment chunks return 404 with `no-store`; current assets retain immutable cache headers, and SPA deep links return the entry document with `no-cache`. The React recovery screen catches failed lazy imports after the app starts, preserves pending identities, and offers an explicit reload. It cannot recover a missing initial entry script. After building the web image, reproduce the trusted-HTTPS routing regression with `pnpm exec tsx scripts/deploy/verify-assets.ts spot-exchange-simulator-web:local`. It creates and removes its own temporary container and trusts only that container's local CA; CI runs it against the CI image.
 
+### Fresh Compose acceptance
+
+`pnpm selfhost:acceptance [api-image] [web-image]` tests the packaged application through a new, isolated Compose installation. It requires Node.js/pnpm as above, a running Docker daemon with Compose, Python 3 on Linux or macOS, and Playwright Chromium. Python's standard-library PTY bridge supplies a real terminal to the ordinary interactive owner setup command; it is only an acceptance-harness prerequisite, not an application runtime dependency. Generated administrator credentials travel through that terminal in memory, never command arguments, environment variables, or a saved transcript.
+
+Build API and web images from the source revision being evaluated. Their `org.opencontainers.image.revision` labels must equal `git rev-parse HEAD`; the harness also checks immutable image IDs against the running containers. The default image tags are shown below. The CI run requires a clean checkout. A local dirty checkout is disclosed in the report and should not be presented as evidence for a clean published revision.
+
+```sh
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+docker build --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" --target api -t spot-exchange-simulator-api:local .
+docker build --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" --target web -t spot-exchange-simulator-web:local .
+pnpm selfhost:acceptance
+```
+
+The harness pulls the pinned PostgreSQL image, chooses unused loopback ports, and exclusively creates `.local/self-host-acceptance/run-<generated-id>/`. It records ownership before generating private configuration under that directory's `configuration/` subdirectory. Explicit Compose files/project/environment settings, verified bind mounts, and separately labeled volumes/networks keep it independent of `.local/self-host/`, the development database, and ambient Compose settings. Existing configuration directories and symlink parents are refused. The API retains its normal restricted database role, non-root/read-only container settings, and CPU/memory limits.
+
+The journey runs ordinary owner migrations against the empty database, confirms no users exist, and bootstraps the administrator with `operator setup`. Isolated Chromium contexts sign in to the compiled UI and redeem invitations. HTTPS commands and UI interactions exercise partial filling, cancellation, exact balances/fees, CSRF, secure cookies, and SSE delivery. Native trader and administrator CSV downloads are compared with authenticated HTTPS downloads and reconciled against their manifests, hashes, row counts, exact journal totals, and role scope; cross-account export access must fail. A graceful Compose API restart must preserve sessions, accounting, original receipt lookup/replay, and automatic live resynchronization in the existing UI before a separate reload check. This restart check does not inject a crash or a lost commit reply; separate integration process-kill tests retain that coverage.
+
+TLS checks first require Node HTTPS to validate Caddy's generated CA and the `localhost` hostname. Chromium then uses a temporary profile and an exception limited to that verified leaf certificate's public key. The exception bypasses Chromium's certificate checks for that matching key; the preceding Node validation establishes its identity. Other Node requests continue to require CA/hostname validation. No host trust store is changed, and no global browser `ignoreHTTPSErrors` setting is used.
+
+An eight-minute run deadline and interruption handlers lead to separately bounded cleanup. Cleanup inventories exact containers, volumes, and networks for the generated project, verifies an independent ownership label before deletion, and checks they are gone before removing the private run directory. It does not use mutable Compose files to select deletion targets or perform a global prune. If Docker inspection or removal cannot be confirmed, private files remain for a retry:
+
+```sh
+pnpm selfhost:acceptance:cleanup
+```
+
+This fallback reads validated ownership records only beneath `.local/self-host-acceptance/`; each recorded run has a 90-second cleanup budget. CI runs it with `if: always()` after the acceptance step. An uncatchable process/runner loss can still require this command on a persistent host. Cleanup success is independently required for a passing acceptance result.
+
+Transport-debug and TLS-key-log environment settings are refused before credentials or browser traffic are created. The harness atomically writes `.local/operations/self-host-acceptance-result.json` after cleanup. Its fixed allowlist contains source commit/dirty state, image IDs/revision labels, check results, failure stage, cleanup results, and the disclosed TLS/test scope. It contains no generated origin/ports, credentials, cookies, invitation links, actor IDs, local paths, terminal transcript, screenshots, traces, or raw errors. CI uploads only that file as `self-host-acceptance-report`, with seven-day retention; private run files are never uploaded. A process/runner terminated before report creation cannot supply a report and must not be treated as a passing result.
+
 ## Operational evidence
 
 A backup exercise restores a PostgreSQL custom-format dump into a new database, compares retained records, reopens the exchange, reconciles accounting, and replays original trading and rollover receipts. Temporary verification databases and files are owned by that exercise. A successful application-process restart alone is a different guarantee from a verified database restore.
@@ -114,6 +144,8 @@ The Docker restore exercise uses the configured PostgreSQL service to create fre
 The reproducible workload measures committed matching commands against real PostgreSQL, reports latency and throughput for its explicit configuration, and checks financial reconciliation and receipt replay. It identifies the runtime, platform, workload, and concurrency without machine or user identifiers. Results establish the measured workload only; they do not claim general hosting capacity, internet latency, or real-money readiness.
 
 ## Recorded local operational results
+
+The fresh Compose HTTPS journey passed locally on 2026-10-15; a real SIGTERM before browser traffic also produced a failed report with all cleanup checks verified. The final clean-revision report is being finalized. The earlier operational results below retain their original scope. A new remote CI result is established only after the corresponding commit is published and its workflow completes.
 
 The 2026-10-14 [self-host report](evidence/container-smoke-result.json) records actual container builds and HTTPS requests through Caddy using an explicitly trusted local CA. It covers deep-link routing, secure cookies, CSRF, invitations, protected market execution, exact accounting, SSE proxy delivery, rollover, archives, and original receipt replay. The API's non-root user and restricted database connection were checked separately. Test-owned containers and volumes were removed afterward.
 
@@ -140,23 +172,23 @@ Use the scenario definitions in [MVP release acceptance](MVP.md#release-acceptan
 
 | Criteria                              | Evidence                                                                                                                               |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| A01 fresh installation                | Owner setup, isolated self-host smoke verification, and invitation/first-trade browser workflow                                        |
+| A01 fresh installation                | Fresh Compose owner setup and compiled HTTPS invitation/trading acceptance; earlier smoke report and development-browser workflow      |
 | A02 invitations and ownership         | API/auth integration tests, scoped history/export tests, invitation browser workflow                                                   |
 | A03–A04 partial fill and cancellation | Trading integration tests, trader browser workflow, exact walkthrough above                                                            |
 | A05 ordering and self-trade           | Domain examples/properties and PostgreSQL trading/market-order tests                                                                   |
 | A06 guarded execution                 | Market-order domain/integration tests and protected-market browser scenarios                                                           |
 | A07 reservations and fees             | Domain conservation/split-fill properties and concurrent reservation integration tests                                                 |
-| A08 retry and recovery                | Trading/admin/simulator/rollover receipts, actual process-kill tests, reload/retry browser scenarios, database restore exercise        |
+| A08 retry and recovery                | Original receipt replay after graceful Compose API restart, separate actual process-kill tests, reload/retry scenarios and restore     |
 | A09 operator controls                 | Auth/admin recovery and simulator integration tests; administrator browser workflow                                                    |
 | A10 simulator lifecycle               | Simulator/core integration tests and audited controls/inventory/funding browser workflow                                               |
 | A11 rollover                          | Session lifecycle/reconciliation tests, three rollover process-kill boundaries, and live transition/archive browser workflow           |
 | A12 market truth                      | Workspace/candle tests and simulator integration/browser scenarios; explicit empty/sparse chart states                                 |
-| A13 explainability and export         | Order/account inspection tests, complete history tests, actual CSV-download browser scenario                                           |
+| A13 explainability and export         | Order/account inspection tests, complete history tests, native trader/admin HTTPS CSV downloads with exact totals and scope checks     |
 | A14 developer onboarding              | Documented HTTP examples and API route/authorization integration tests                                                                 |
 | A15 fault and rollover boundaries     | Gated enrollment/funding/reinstatement tests, faulted-transition repair/retry tests, access-revocation checks                          |
 | A16 coherent live export              | Concurrent-commit export test with one Repeatable Read snapshot, exact balance/fee totals, role scopes, and recorded manifest boundary |
 
-The archive browser scenario also verifies a 390 × 844 viewport without document overflow, a history workspace that fills the available width, readable session/export/pagination controls, and Escape restoring focus after closing read-only order details. The isolated HTTPS/proxy smoke report supplements the development-browser scenarios. Local verification is recorded in [development evidence](DEVELOPMENT.md#evidence-and-limitations). The public repository's **Actions → Verify Spot Exchange Simulator** view records remote Linux runs against their exact commits, including image builds and a downloadable sanitized restore report. Check that commit's result when evaluating a release.
+The archive browser scenario also verifies a 390 × 844 viewport without document overflow, a history workspace that fills the available width, readable session/export/pagination controls, and Escape restoring focus after closing read-only order details. The packaged HTTPS acceptance journey supplements the development-browser scenarios; the earlier smoke report remains separate evidence. Local verification is recorded in [development evidence](DEVELOPMENT.md#evidence-and-limitations). The public repository's **Actions → Verify Spot Exchange Simulator** view records remote Linux runs against their exact commits, including image builds and downloadable sanitized acceptance/restore reports. Check that commit's result when evaluating a release.
 
 ## Contributing
 

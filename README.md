@@ -53,13 +53,16 @@ The demo, integration, and browser test runners start real, temporary PostgreSQL
 - Browser regressions against real PostgreSQL, including uncertain-response recovery, simulator controls, rollover, archived balances, and actual CSV downloads, with failure traces/screenshots retained in CI.
 - Durable session rollover, exactly-once allocations, read-only financial archives, and recovery of the original transition after process loss.
 - Complete keyset history pagination and account/order lookup, plus native CSV downloads from one recorded snapshot with exact row counts, hashes, and expiry.
-- A self-host Compose package with pinned images, lockfile-managed runtime tooling, HTTPS proxying, owner migrations, a restricted application role, operational verification scripts, and reproducible large-session HTTP/chart benchmarks.
+- A self-host Compose package with pinned images, lockfile-managed runtime tooling, HTTPS proxying, owner migrations, a restricted application role, and an isolated HTTPS acceptance journey covering trading, complete exports, restart recovery, and verified cleanup.
+- Reproducible restore exercises and large-session HTTP/chart benchmarks with disclosed workloads and resource measurements.
 
 The architecture is a modular monolith with PostgreSQL as the authority. Serializing mutations gives this single-market prototype an understandable consistency boundary. The reproducible workload and restore exercise are described in the [release guide](docs/RELEASE.md). Measurements apply to their explicit test configuration.
 
 ## Continuous integration
 
-The [GitHub Actions workflow](.github/workflows/ci.yml) checks every push and pull request on Linux: frozen dependency installation, type checking, formatting, unit tests, PostgreSQL integration tests including the frozen upgrade, the web build, Chromium browser flows, all three self-host image targets, trusted-HTTPS asset routing, locked production/operations loader startup, and a fresh PostgreSQL restore. Use the repository's **Actions** tab to inspect the current result and download its operational report. Failed browser runs retain traces and screenshots for seven days.
+The [GitHub Actions workflow](.github/workflows/ci.yml) checks every push and pull request on Linux: frozen dependency installation, type checking, formatting, unit tests, PostgreSQL integration tests including the frozen upgrade, the web build, Chromium browser flows, all three self-host image targets, trusted-HTTPS asset routing, locked production/operations loader startup, a fresh Compose installation with HTTPS trading/exports and graceful API restart recovery, and a fresh PostgreSQL restore. Use the repository's **Actions** tab to inspect the result for the exact published commit. It retains the sanitized self-host acceptance and restore reports for seven days. The separate development-browser suite retains failure traces/screenshots; the self-host acceptance journey records no raw browser artifacts or terminal transcripts.
+
+To reproduce the packaged acceptance journey locally, follow [fresh Compose acceptance](docs/RELEASE.md#fresh-compose-acceptance). It requires Docker Compose, Python 3, Chromium, and API/web images labeled with the current Git revision. Run `pnpm selfhost:acceptance [api-image] [web-image]`; `pnpm selfhost:acceptance:cleanup` retries cleanup of recorded test-owned runs.
 
 Recorded results and their limits are documented in the [development evidence](docs/DEVELOPMENT.md#evidence-and-limitations).
 
