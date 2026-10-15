@@ -38,9 +38,13 @@ jobs:
           Path('.local/login-repro').mkdir(parents=True, exist_ok=True)
           Path('.local/login-repro/ci-runner.ts').write_text(source)
           PY
-      - name: Run at most five login-only browsers
+      - name: Run login only against five fresh installations
         timeout-minutes: 10
-        run: pnpm exec tsx .local/login-repro/ci-runner.ts spot-exchange-simulator-api:login-probe spot-exchange-simulator-web:login-probe
+        run: |
+          for installation in 1 2 3 4 5; do
+            echo "Login-only installation $installation"
+            pnpm exec tsx .local/login-repro/ci-runner.ts spot-exchange-simulator-api:login-probe spot-exchange-simulator-web:login-probe
+          done
       - name: Verify scoped cleanup
         if: always()
         run: pnpm selfhost:acceptance:cleanup

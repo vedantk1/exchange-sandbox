@@ -1,13 +1,14 @@
 import { chromium, expect } from '@playwright/test';
 import { AcceptanceJourneyError, openLoginPage } from './login.js';
 import { closeJourneyBrowser } from './browser-cleanup.js';
+import { submitLogin } from './submission.js';
 
 const identifier = (value: unknown): string | null =>
   typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_-]{0,79}$/.test(value) ? value : null;
 const netError = (value: unknown): string | null =>
   typeof value === 'string' && /^net::ERR_[A-Z0-9_]{1,80}$/.test(value) ? value : null;
 
-/** Temporary diagnostic: five fresh browsers, one installation, no trading or raw artifacts. */
+/** Temporary diagnostic: match the journey's three-context admin login, without trading. */
 export async function runJourney(options: {
   origin: string;
   ca: string;
@@ -16,7 +17,7 @@ export async function runJourney(options: {
   restartApi: () => Promise<void>;
   signal?: AbortSignal;
 }): Promise<Record<string, boolean>> {
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  for (let attempt = 1; attempt <= 1; attempt++) {
     if (options.signal?.aborted) throw new AcceptanceJourneyError('ACCEPTANCE_INTERRUPTED');
     const browser = await chromium
       .launch({
@@ -34,8 +35,14 @@ export async function runJourney(options: {
     let failure: AcceptanceJourneyError | undefined;
     try {
       if (options.signal?.aborted) throw new AcceptanceJourneyError('ACCEPTANCE_INTERRUPTED');
-      const context = await browser.newContext();
-      const page = await context.newPage();
+      const contexts = await Promise.all([
+        browser.newContext({ acceptDownloads: true }),
+        browser.newContext({ acceptDownloads: true }),
+        browser.newContext({ acceptDownloads: true }),
+      ]);
+      const pages = await Promise.all(contexts.map((context) => context.newPage()));
+      const context = contexts[0]!;
+      const page = pages[0]!;
       page.setDefaultTimeout(12_000);
       page.setDefaultNavigationTimeout(12_000);
       const cdp = await context.newCDPSession(page);
@@ -70,21 +77,7 @@ export async function runJourney(options: {
       });
       await cdp.send('Network.enable');
       await openLoginPage(page, options.origin, 'ADMIN');
-      await page.getByLabel(/^Handle/).fill('acceptance_admin');
-      await page.getByLabel('Password', { exact: true }).fill(options.password);
-      const [response] = await Promise.all([
-        page.waitForResponse(
-          (response) =>
-            response.url() === `${options.origin}/api/auth/login` &&
-            response.request().method() === 'POST',
-          { timeout: 12_000 },
-        ),
-        page.getByRole('button', { name: 'Sign in', exact: true }).click({ timeout: 12_000 }),
-      ]);
-      console.log(
-        JSON.stringify({ attempt, stage: 'login_response', httpStatus: response.status() }),
-      );
-      if (response.status() !== 200) throw new AcceptanceJourneyError('ACCEPTANCE_LOGIN_FAILED');
+      await submitLogin(page, options.origin, 'ADMIN', 'acceptance_admin', options.password);
       await expect(page.getByText('Live · synced', { exact: true })).toBeVisible({
         timeout: 12_000,
       });
