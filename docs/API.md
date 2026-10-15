@@ -18,6 +18,8 @@ Browser clients can send an optional `X-Sandbox-Actor` header containing the ide
 
 Signing out revokes the current session but leaves existing orders active. Password changes revoke other sessions and rotate the current session. Password recovery revokes all prior sessions. Suspension revokes access and cancels unfilled order quantities; completed fills remain valid. Reinstatement does not recreate orders or repeat the current session's starting allocation.
 
+Every HTTP response carries a server-generated UUID in `X-Request-Id`, including rejected requests. Caller-supplied request identity headers are ignored. Keep that value with an unresolved command's original `commandId` and `sessionId` when investigating a response; the request identity changes on every retry and never replaces the durable command identity.
+
 ## Commands and retries
 
 Trading and administrator mutation payloads include a caller-generated UUID `commandId`. Financial commands also name the intended exchange `sessionId`. Use a new identity for a new intention, and reuse the same identity and payload after an uncertain response.
@@ -81,6 +83,7 @@ Administrator mutations use `{ commandId, sessionId, reason }` plus the addition
 | Method | Path                                      | Purpose / additional mutation fields                                             |
 | ------ | ----------------------------------------- | -------------------------------------------------------------------------------- |
 | GET    | `/api/admin/overview`                     | Read operational state                                                           |
+| GET    | `/api/admin/diagnostics`                  | Read private process-local aggregate diagnostics                                 |
 | GET    | `/api/admin/traders`                      | List participant accounts                                                        |
 | GET    | `/api/admin/traders/:accountId`           | Inspect an account snapshot                                                      |
 | GET    | `/api/admin/traders/:accountId/workspace` | Inspect account balances, orders, fills, journal activity, and commands          |
@@ -213,6 +216,12 @@ Outbox replay and live delivery apply the current authorization filter. Unrelate
 Every poll rechecks the stored login session, and authorization is checked again immediately before delivery. Logout, suspension, recovery, and expiry revoke stream access. A single process permits 32 streams and at most three per account, independently of the ordinary 64 active-request limit. Streams poll committed data once per second and heartbeat every ten seconds. These are resource bounds, not measured capacity guarantees. A slow socket is disconnected on backpressure without building a notification queue. Closing the server closes all streams before draining HTTP resources.
 
 Serialize workspace refreshes or discard older responses by session and cursor. Equal cursors can still have changed fault state or time-derived metadata, so equal does not mean unchanged. Do not apply order-book, balance, or history mutations optimistically from SSE. A paused or faulty market remains inspectable; it never authorizes a new order.
+
+## Operational diagnostics
+
+`GET /api/admin/diagnostics` requires a currently valid administrator session and returns `Cache-Control: no-store`. Anonymous access receives 401 and a trader receives 403. Authentication is checked against PostgreSQL, including revocation; the endpoint remains available during an accounting halt when database reads work, but it is not an unauthenticated fallback for a database outage.
+
+The versioned response has `schemaVersion: 1`, process-window timestamps/uptime, process memory in bytes, fixed-name `timings`, event counts, and gauges. Timings contain `count`, `totalMs`, `maxMs`, fixed outcome counts, and cumulative histogram buckets; `upperBoundMs: null` is the unbounded final bucket. The response contains no request, command, account, order or session identities, SQL, credentials, token values, or raw errors. Selected validated command identities appear only in sanitized event logs for correlation. Aggregates reset on process restart and do not replace financial receipts or administrator audit history. See [operations and troubleshooting](OPERATIONS.md) for the precise counting rules and failure investigation steps.
 
 ## Cookie-authenticated example
 

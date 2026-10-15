@@ -6,6 +6,7 @@ import type { Selectable, Transaction } from 'kysely';
 import { quoteIntents } from './inventory.js';
 import type { Control, Exchange } from '../exchange.js';
 import type { CancelCommand, LimitCommand } from '../types.js';
+import type { DiagnosticOutcome } from '../diagnostics.js';
 
 type State = Selectable<Database['demo_market']>;
 type Planned = { type: 'cancel'; input: CancelCommand } | { type: 'limit'; input: LimitCommand };
@@ -68,8 +69,20 @@ export class DemoMarket {
 
   tick(): Promise<void> {
     if (this.stopping) return Promise.resolve();
-    this.pending ??= this.runCycle().finally(() => {
-      this.pending = undefined;
+    if (this.pending) return this.pending;
+    const diagnostics = this.exchange.diagnostics;
+    this.pending = diagnostics.run({ operation: 'simulator' }, async () => {
+      const started = performance.now();
+      let outcome: DiagnosticOutcome = 'error';
+      diagnostics.gauge('simulator.in_flight', 1);
+      try {
+        outcome = await this.runCycle();
+      } finally {
+        diagnostics.gauge('simulator.in_flight', 0);
+        diagnostics.observe('simulator.cycle', performance.now() - started, outcome);
+        diagnostics.event('simulator.cycle', { outcome });
+        this.pending = undefined;
+      }
     });
     return this.pending;
   }
@@ -173,13 +186,13 @@ export class DemoMarket {
     return Boolean(current?.enabled && current.generation === state.generation);
   }
 
-  private async runCycle(): Promise<void> {
+  private async runCycle(): Promise<'ok' | 'skipped'> {
     const state = await this.prepare();
-    if (!state) return;
+    if (!state) return 'skipped';
     try {
       const plan = state.plan as Planned[];
       for (let index = state.next_command; index < plan.length; index += 1) {
-        if (this.stopping) return;
+        if (this.stopping) return 'skipped';
         const ready = await this.exchange.readTransaction(async (tx) => {
           const control = await tx
             .selectFrom('exchange_control')
@@ -193,13 +206,13 @@ export class DemoMarket {
             (await this.owns(tx, state))
           );
         });
-        if (!ready) return;
+        if (!ready) return 'skipped';
         const command = plan[index]!;
         const result =
           command.type === 'limit'
             ? await this.exchange.placeLimit(command.input, undefined, state.generation)
             : await this.exchange.cancel(command.input, undefined, state.generation);
-        if (result.code === 'STALE_SIMULATOR' || result.code === 'STALE_SESSION') return;
+        if (result.code === 'STALE_SIMULATOR' || result.code === 'STALE_SESSION') return 'skipped';
         // Terminal rejections advance too. An ambiguous outcome leaves the original ID to retry.
         const advanced = await this.exchange.accessTransaction(async (tx, control) => {
           if (!(await this.owns(tx, state))) return false;
@@ -221,12 +234,12 @@ export class DemoMarket {
           return true;
         });
         if (!advanced || result.code === 'MARKET_PAUSED' || result.code === 'INVARIANT_FAILURE')
-          return;
+          return 'skipped';
         if (result.status === 'REJECTED' && result.code !== 'INSUFFICIENT_FUNDS')
           throw new Error('DEMO_COMMAND_REJECTED');
       }
-      await this.exchange.accessTransaction(async (tx, control) => {
-        if (!(await this.owns(tx, state))) return;
+      const completed = await this.exchange.accessTransaction(async (tx, control) => {
+        if (!(await this.owns(tx, state))) return false;
         await tx
           .updateTable('demo_market')
           .set({
@@ -238,7 +251,9 @@ export class DemoMarket {
           .where('session_id', '=', state.session_id)
           .execute();
         await changed(tx, control, state.session_id);
+        return true;
       });
+      return completed ? 'ok' : 'skipped';
     } catch (error) {
       await this.reportError(state);
       throw error;

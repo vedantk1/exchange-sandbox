@@ -10,6 +10,8 @@ import { AuthError } from '../auth/errors.js';
 import { requirePrincipal, type Principal } from '../auth/access.js';
 import { historyContext, scopedAccount } from './context.js';
 import { csvText } from './export.js';
+import { diagnosticOutcome } from '../diagnostic-outcome.js';
+import type { DiagnosticOutcome } from '../diagnostics.js';
 import {
   EXPORT_DECIMALS,
   exportColumns,
@@ -59,6 +61,7 @@ export class HistoryExports {
   private ownsDirectory = false;
   private timer: NodeJS.Timeout | undefined;
   private active = 0;
+  private downloads = 0;
   private closed = false;
   private publication: Promise<void> = Promise.resolve();
 
@@ -148,6 +151,25 @@ export class HistoryExports {
     requestedAccountId?: string,
     requestSignal?: AbortSignal,
   ): Promise<PreparedHistoryExportView> {
+    const started = performance.now();
+    let outcome: DiagnosticOutcome = 'ok';
+    try {
+      return await this.prepareJob(token, sessionId, requestedAccountId, requestSignal);
+    } catch (error) {
+      outcome = diagnosticOutcome(error);
+      throw error;
+    } finally {
+      this.exchange.diagnostics.observe('export.prepare', performance.now() - started, outcome);
+      this.exchange.diagnostics.event('export.prepared', { outcome });
+    }
+  }
+
+  private async prepareJob(
+    token: string,
+    sessionId: string,
+    requestedAccountId?: string,
+    requestSignal?: AbortSignal,
+  ): Promise<PreparedHistoryExportView> {
     const owner = await this.exchange.readTransaction(async (tx) => {
       const actor = await requirePrincipal(tx, token);
       const accountId =
@@ -186,6 +208,8 @@ export class HistoryExports {
       : job.controller.signal;
     this.jobs.set(id, job);
     this.active += 1;
+    this.exchange.diagnostics.gauge('export.retained_jobs', this.jobs.size);
+    this.exchange.diagnostics.gauge('export.active_preparations', this.active);
     const work = this.generate(job, token, sessionId, owner.accountId, signal);
     this.pending.add(work);
     try {
@@ -193,6 +217,7 @@ export class HistoryExports {
     } finally {
       this.pending.delete(work);
       this.active -= 1;
+      this.exchange.diagnostics.gauge('export.active_preparations', this.active);
     }
   }
 
@@ -368,6 +393,7 @@ export class HistoryExports {
     job.stopped = true;
     job.controller.abort();
     this.jobs.delete(job.id);
+    this.exchange.diagnostics.gauge('export.retained_jobs', this.jobs.size);
     await Promise.allSettled(job.files.map((file) => file.handle.close()));
     await rm(job.directory, { recursive: true, force: true });
   }
@@ -388,6 +414,46 @@ export class HistoryExports {
     token: string,
     exportId: string,
     fileName: string,
+  ): Promise<void> {
+    const started = performance.now();
+    let recorded = false;
+    let active = false;
+    const completed = (outcome: DiagnosticOutcome) => {
+      if (recorded) return;
+      recorded = true;
+      if (active) {
+        this.downloads -= 1;
+        this.exchange.diagnostics.gauge('export.active_downloads', this.downloads);
+      }
+      this.exchange.diagnostics.observe('export.download', performance.now() - started, outcome);
+      this.exchange.diagnostics.event('export.downloaded', { outcome });
+    };
+    try {
+      await this.sendDownload(
+        reply,
+        token,
+        exportId,
+        fileName,
+        () => {
+          active = true;
+          this.downloads += 1;
+          this.exchange.diagnostics.gauge('export.active_downloads', this.downloads);
+        },
+        completed,
+      );
+    } catch (error) {
+      completed(diagnosticOutcome(error));
+      throw error;
+    }
+  }
+
+  private async sendDownload(
+    reply: FastifyReply,
+    token: string,
+    exportId: string,
+    fileName: string,
+    started: () => void,
+    completed: (outcome: DiagnosticOutcome) => void,
   ): Promise<void> {
     const actor = await this.exchange.readTransaction((tx) => requirePrincipal(tx, token));
     const job = this.jobs.get(exportId);
@@ -420,31 +486,62 @@ export class HistoryExports {
     const stream = createReadStream(file.path, { highWaterMark: 64 * 1024 });
     this.streams.add(stream);
     job.streams.add(stream);
-    const timeout = setTimeout(
-      () => stream.destroy(new Error('Export download exceeded its deadline.')),
-      this.options.downloadMs,
-    );
-    const close = () => stream.destroy();
-    const cleanup = () => {
-      clearTimeout(timeout);
+    started();
+    let outcome: DiagnosticOutcome = 'ok';
+    let streamClosed = false;
+    let responseClosed = false;
+    let responseFinished = reply.raw.writableFinished;
+    const finishObservation = () => {
+      if (!streamClosed || (!responseFinished && !responseClosed)) return;
       reply.raw.off('close', close);
+      reply.raw.off('finish', finish);
+      completed(outcome);
+    };
+    const timeout = setTimeout(() => {
+      outcome = 'timeout';
+      stream.destroy(new Error('Export download exceeded its deadline.'));
+    }, this.options.downloadMs);
+    const close = () => {
+      responseClosed = true;
+      if (!responseFinished && !reply.raw.writableFinished && outcome === 'ok') outcome = 'aborted';
+      stream.destroy();
+      finishObservation();
+    };
+    const finish = () => {
+      responseFinished = true;
+      finishObservation();
+    };
+    const cleanup = () => {
+      streamClosed = true;
+      clearTimeout(timeout);
       this.streams.delete(stream);
       job.streams.delete(stream);
+      finishObservation();
       if (job.metadata && Date.parse(job.metadata.expiresAt) <= Date.now())
         void this.expire().catch(() => undefined);
     };
+    stream.once('error', (error) => {
+      if (outcome === 'ok') outcome = diagnosticOutcome(error);
+    });
     stream.once('close', cleanup);
     reply.raw.once('close', close);
+    reply.raw.once('finish', finish);
     reply.raw.socket?.setTimeout?.(this.options.downloadMs + 5_000);
-    reply
-      .header('Content-Type', 'text/csv; charset=utf-8')
-      .header('Content-Disposition', `attachment; filename="${file.name}"`)
-      .header('Content-Length', file.bytes)
-      .header(
-        'X-Export-SHA256',
-        job.metadata.files.find((entry) => entry.name === file.name)!.sha256,
-      );
-    await reply.send(stream);
+    try {
+      reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="${file.name}"`)
+        .header('Content-Length', file.bytes)
+        .header(
+          'X-Export-SHA256',
+          job.metadata.files.find((entry) => entry.name === file.name)!.sha256,
+        );
+      await reply.send(stream);
+    } catch (error) {
+      if (outcome === 'ok') outcome = diagnosticOutcome(error);
+      stream.destroy();
+      throw error;
+    }
   }
 
   async close(): Promise<void> {

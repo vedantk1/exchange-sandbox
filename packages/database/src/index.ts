@@ -1,4 +1,9 @@
-export { createDatabase, withDatabaseBudget, type DatabaseOptions } from './client.js';
+export {
+  createDatabase,
+  withDatabaseBudget,
+  type DatabaseOptions,
+  type DatabaseObservation,
+} from './client.js';
 export {
   DatabaseTimeoutError,
   DEFAULT_DATABASE_BUDGETS,

@@ -5,6 +5,8 @@ import type { Exchange } from './exchange.js';
 import { requirePrincipal, type Principal } from './auth/index.js';
 import { AuthError } from './auth/errors.js';
 import { currentCursor } from './workspace.js';
+import { diagnosticOutcome } from './diagnostic-outcome.js';
+import type { DiagnosticOutcome } from './diagnostics.js';
 
 export interface LiveOptions {
   pollMs?: number;
@@ -68,17 +70,27 @@ export class LiveUpdates {
     requestedSession: string,
     requestedCursor: string,
   ): Promise<void> {
-    const actor = await this.exchange.readTransaction((tx) => requirePrincipal(tx, token));
-    if (
-      this.closed ||
-      this.streams.size >= this.options.maxStreams ||
-      (this.accounts.get(actor.accountId) ?? 0) >= this.options.maxStreamsPerAccount
-    ) {
-      throw new AuthError(
-        'STREAM_LIMIT',
-        'Too many live connections. Close an unused tab and retry.',
-        503,
-      );
+    const started = performance.now();
+    const diagnostics = this.exchange.diagnostics;
+    let actor: Principal;
+    try {
+      actor = await this.exchange.readTransaction((tx) => requirePrincipal(tx, token));
+      if (
+        this.closed ||
+        this.streams.size >= this.options.maxStreams ||
+        (this.accounts.get(actor.accountId) ?? 0) >= this.options.maxStreamsPerAccount
+      ) {
+        throw new AuthError(
+          'STREAM_LIMIT',
+          'Too many live connections. Close an unused tab and retry.',
+          503,
+        );
+      }
+    } catch (error) {
+      const outcome = diagnosticOutcome(error);
+      diagnostics.observe('live.connection', performance.now() - started, outcome);
+      diagnostics.event('live.disconnected', { outcome });
+      throw error;
     }
     let cursor = requestedCursor;
     let sessionId = requestedSession;
@@ -88,7 +100,8 @@ export class LiveUpdates {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let lastSent = 0;
     const raw = reply.raw;
-    const cleanup = () => {
+    const onClosed = () => cleanup('aborted');
+    const cleanup = (outcome: DiagnosticOutcome) => {
       if (stopped) return;
       stopped = true;
       if (timer) clearTimeout(timer);
@@ -96,34 +109,46 @@ export class LiveUpdates {
       const remaining = (this.accounts.get(actor.accountId) ?? 1) - 1;
       if (remaining === 0) this.accounts.delete(actor.accountId);
       else this.accounts.set(actor.accountId, remaining);
-      raw.off('close', cleanup);
+      raw.off('close', onClosed);
+      diagnostics.gauge('live.connections', this.streams.size);
+      diagnostics.observe('live.connection', performance.now() - started, outcome);
+      diagnostics.event('live.disconnected', { outcome });
     };
-    const close = () => {
-      cleanup();
+    const close = (outcome: DiagnosticOutcome = 'unavailable') => {
+      cleanup(outcome);
       raw.end();
     };
     this.streams.add(close);
     this.accounts.set(actor.accountId, (this.accounts.get(actor.accountId) ?? 0) + 1);
-    raw.once('close', cleanup);
-    reply.hijack();
-    for (const [name, value] of Object.entries(reply.getHeaders())) {
-      if (value !== undefined) raw.setHeader(name, value);
+    diagnostics.gauge('live.connections', this.streams.size);
+    diagnostics.event('live.connected', { outcome: 'ok' });
+    raw.once('close', onClosed);
+    try {
+      reply.hijack();
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) raw.setHeader(name, value);
+      }
+      raw.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-store, no-transform',
+        'X-Accel-Buffering': 'no',
+        Connection: 'keep-alive',
+      });
+      raw.flushHeaders();
+      raw.socket?.setTimeout(0);
+    } catch (error) {
+      cleanup(diagnosticOutcome(error));
+      throw error;
     }
-    raw.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-store, no-transform',
-      'X-Accel-Buffering': 'no',
-      Connection: 'keep-alive',
-    });
-    raw.flushHeaders();
-    raw.socket?.setTimeout(0);
 
     const send = (event: string, payload: object, id?: string) => {
       if (stopped) return;
       const frame = `${id === undefined ? '' : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
       // One bounded frame, then disconnect on backpressure; do not queue a backlog.
-      if (!raw.write(frame)) {
-        cleanup();
+      const writable = raw.write(frame);
+      diagnostics.event('live.frame', { outcome: writable ? 'ok' : 'busy' });
+      if (!writable) {
+        cleanup('busy');
         raw.destroy();
       }
       lastSent = performance.now();
@@ -189,7 +214,7 @@ export class LiveUpdates {
         if (error instanceof AuthError && (error.statusCode === 401 || error.statusCode === 403))
           send('auth-lost', {});
         else send('unavailable', {});
-        close();
+        close(diagnosticOutcome(error));
       }
       if (!stopped) timer = setTimeout(() => void tick(), this.options.pollMs);
     };

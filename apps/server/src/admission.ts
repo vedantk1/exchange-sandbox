@@ -1,5 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { Diagnostics } from './diagnostics.js';
+import { diagnosticContext } from './diagnostic-context.js';
+import { diagnosticOutcome } from './diagnostic-outcome.js';
+import type { DiagnosticOutcome } from './diagnostics.js';
 
 // Prototype resource bounds, not measured throughput or latency guarantees.
 export const MAX_ACTIVE_REQUESTS = 64;
@@ -18,6 +22,7 @@ interface AdmissionScope {
   signal: AbortSignal;
   deadline: number;
   admitted: boolean;
+  rejected?: (code: AdmissionError['code']) => void;
 }
 
 const scopeStorage = new AsyncLocalStorage<AdmissionScope>();
@@ -26,8 +31,15 @@ function assertPending(scope: AdmissionScope): void {
   // Once admitted, a command completes atomically despite a lost HTTP client.
   // This also permits its fault-persistence fallback to finish safely.
   if (scope.admitted) return;
-  if (scope.signal.aborted) throw new AdmissionError('REQUEST_ABORTED');
-  if (performance.now() >= scope.deadline) throw new AdmissionError('ADMISSION_EXPIRED');
+  const code = scope.signal.aborted
+    ? 'REQUEST_ABORTED'
+    : performance.now() >= scope.deadline
+      ? 'ADMISSION_EXPIRED'
+      : undefined;
+  if (code) {
+    scope.rejected?.(code);
+    throw new AdmissionError(code);
+  }
 }
 
 export function checkPendingAdmission(): void {
@@ -60,7 +72,11 @@ interface RequestState {
 }
 
 /** No queue: a slot includes body parsing, authorization, and the route handler. */
-export function installHttpAdmission(app: FastifyInstance, options: HttpAdmissionOptions = {}) {
+export function installHttpAdmission(
+  app: FastifyInstance,
+  options: HttpAdmissionOptions = {},
+  diagnostics?: Diagnostics,
+) {
   const maxActiveRequests = options.maxActiveRequests ?? MAX_ACTIVE_REQUESTS;
   const deadlineMs = options.deadlineMs ?? ADMISSION_DEADLINE_MS;
   if (
@@ -79,6 +95,7 @@ export function installHttpAdmission(app: FastifyInstance, options: HttpAdmissio
     if (!state.handlerFinished && !state.responseFinished && !state.disconnected) return;
     state.released = true;
     activeRequests -= 1;
+    diagnostics?.gauge('http.active_requests', activeRequests);
     state.cleanup();
   }
 
@@ -98,8 +115,34 @@ export function installHttpAdmission(app: FastifyInstance, options: HttpAdmissio
     if (!state) throw new AdmissionError('ADMISSION_BUSY');
     assertPending(state.scope);
     state.work += 1;
+    const context = diagnosticContext(request);
+    const command = handler && context.commandId !== undefined && context.sessionId !== undefined;
+    const started = performance.now();
+    const record = (outcome: DiagnosticOutcome, result?: unknown) => {
+      if (!command || !diagnostics) return;
+      diagnostics.observe('http.command', performance.now() - started, outcome);
+      // Matching owns its commit/replay distinction, including lost after-commit replies.
+      if (['limit_order', 'market_order', 'cancel_order'].includes(context.operation ?? '')) return;
+      const sequence = (result as { sequence?: unknown } | undefined)?.sequence;
+      diagnostics.event('command.completed', {
+        ...context,
+        outcome,
+        ...(typeof sequence === 'string' ? { sequence } : {}),
+      });
+    };
     try {
-      return await scopeStorage.run(state.scope, work);
+      const result = await scopeStorage.run(state.scope, () =>
+        diagnostics ? diagnostics.run(diagnosticContext(request), work) : work(),
+      );
+      const status = (result as { status?: unknown } | null)?.status;
+      record(
+        status === 'ACCEPTED' ? 'accepted' : status === 'REJECTED' ? 'rejected' : 'ok',
+        result,
+      );
+      return result;
+    } catch (error) {
+      record(diagnosticOutcome(error));
+      throw error;
     } finally {
       state.work -= 1;
       if (handler) state.handlerFinished = true;
@@ -108,7 +151,11 @@ export function installHttpAdmission(app: FastifyInstance, options: HttpAdmissio
   }
 
   app.addHook('onRequest', async (request, reply) => {
-    if (activeRequests >= maxActiveRequests) throw new AdmissionError('ADMISSION_BUSY');
+    if (activeRequests >= maxActiveRequests) {
+      diagnostics?.event('admission.rejected', { ...diagnosticContext(request), outcome: 'busy' });
+      throw new AdmissionError('ADMISSION_BUSY');
+    }
+    let reported = false;
     const controller = new AbortController();
     const state: RequestState = {
       controller,
@@ -116,6 +163,14 @@ export function installHttpAdmission(app: FastifyInstance, options: HttpAdmissio
         signal: controller.signal,
         deadline: performance.now() + deadlineMs,
         admitted: false,
+        rejected: (code) => {
+          if (reported) return;
+          reported = true;
+          diagnostics?.event('admission.rejected', {
+            ...diagnosticContext(request),
+            outcome: code === 'REQUEST_ABORTED' ? 'aborted' : 'timeout',
+          });
+        },
       },
       work: 0,
       handlerFinished: false,
@@ -135,6 +190,7 @@ export function installHttpAdmission(app: FastifyInstance, options: HttpAdmissio
       reply.raw.off('close', onClosed);
     };
     activeRequests += 1;
+    diagnostics?.gauge('http.active_requests', activeRequests);
     requests.set(request, state);
     request.raw.once('aborted', onAborted);
     reply.raw.once('close', onClosed);

@@ -48,6 +48,8 @@ import { AuthError } from './auth/errors.js';
 import { admitRequest, checkPendingAdmission, COMMAND_LOCK_TIMEOUT_MS } from './admission.js';
 import { recoverSessionRollover, requireNoRollover } from './session-lifecycle.js';
 import { captureCommandTimestamp, commandTimestamp } from './command-time.js';
+import { Diagnostics, type DiagnosticOutcome } from './diagnostics.js';
+import { diagnosticOutcome } from './diagnostic-outcome.js';
 
 export type * from './types.js';
 export { CommandConflictError, RecoveryError, WriterUnavailableError } from './errors.js';
@@ -88,25 +90,56 @@ export class Exchange {
   private closing: Promise<void> | undefined;
   private runtimeFault: string | null = null;
   private faultRevision = 0;
+  private diagnosticFaulted = false;
+  private diagnosticAvailable = true;
+
+  readonly diagnostics: Diagnostics;
 
   private constructor(
     private readonly db: Kysely<Database>,
     private readonly guard: Client,
     private readonly options: ExchangeOptions,
   ) {
+    this.diagnostics = options.diagnostics ?? new Diagnostics();
     guard.on('error', () => {
       this.available = false;
+      this.writerUnavailable();
     });
     guard.on('end', () => {
       this.available = false;
+      if (!this.closed) this.writerUnavailable();
     });
   }
 
   static async open(databaseUrl: string, options: ExchangeOptions = {}): Promise<Exchange> {
+    const diagnostics = options.diagnostics ?? new Diagnostics();
     const db = createDatabase(databaseUrl, {
       ...options.database,
       onError: () => {
         exchange.available = false;
+        exchange.writerUnavailable();
+      },
+      observer: (event) => {
+        // Neither a diagnostics sink nor an optional local observer may alter
+        // query results, commit decisions, or the lifetime of a database lease.
+        try {
+          diagnostics.observe(
+            event.phase === 'shutdown'
+              ? 'database.shutdown'
+              : `database.${event.kind}.${event.phase}`,
+            event.durationMs,
+            event.outcome,
+          );
+        } catch {
+          /* Diagnostics cannot participate in a financial transaction. */
+        }
+        try {
+          // Preserve a returned promise so the database observer boundary can
+          // consume rejected asynchronous observers as well as thrown callbacks.
+          return options.database?.observer?.(event);
+        } catch {
+          /* A trusted observer is still independent of database semantics. */
+        }
       },
     });
     const guard = new Client({
@@ -116,7 +149,12 @@ export class Exchange {
       lock_timeout: 2_000,
       keepAlive: true,
     });
-    const exchange = new Exchange(db, guard, options);
+    const exchange = new Exchange(db, guard, { ...options, diagnostics });
+    exchange.diagnostic(() => {
+      diagnostics.gauge('engine.recovering', 1);
+      diagnostics.gauge('engine.available', 0);
+      diagnostics.event('recovery.started', { operation: 'maintenance' });
+    });
     try {
       await guard.connect();
       let expired = false;
@@ -137,17 +175,15 @@ export class Exchange {
       } finally {
         clearTimeout(guardDeadline);
       }
-      if (!lock.rows[0]?.acquired) throw new WriterUnavailableError();
+      if (!lock.rows[0]?.acquired) {
+        exchange.writerUnavailable();
+        throw new WriterUnavailableError();
+      }
       const fault = await withDatabaseBudget(db, 'maintenance', async () => {
         if (options.migrations === 'verify') await verifyMigrations(db);
         else await migrate(db);
         return db.transaction().execute(async (tx) => {
-          const control = await tx
-            .selectFrom('exchange_control')
-            .selectAll()
-            .where('id', '=', 1)
-            .forUpdate()
-            .executeTakeFirstOrThrow();
+          const control = await exchange.controlLock(tx);
           exchange.epoch = (BigInt(control.writer_epoch) + 1n).toString();
           const report = await reconcileDatabase(tx);
           const fault = control.fault ?? (report.ok ? null : report.issues.join('; '));
@@ -159,10 +195,26 @@ export class Exchange {
           return fault;
         });
       });
+      exchange.faultState(Boolean(fault));
       if (fault && !options.allowFaultedStartup) throw new RecoveryError(fault);
       if (!fault) await recoverSessionRollover(exchange);
+      exchange.diagnostic(() => {
+        diagnostics.gauge('engine.recovering', 0);
+        diagnostics.gauge('engine.available', exchange.available && !exchange.closed ? 1 : 0);
+        diagnostics.event('recovery.completed', {
+          operation: 'maintenance',
+          outcome: fault ? 'rejected' : 'ok',
+        });
+      });
       return exchange;
     } catch (error) {
+      exchange.diagnostic(() => {
+        diagnostics.gauge('engine.recovering', 0);
+        diagnostics.event('recovery.completed', {
+          operation: 'maintenance',
+          outcome: exchange.diagnosticOutcome(error),
+        });
+      });
       await exchange.close();
       throw error;
     }
@@ -172,6 +224,7 @@ export class Exchange {
     if (this.closing) return this.closing;
     this.closed = true;
     this.available = false;
+    this.diagnostic(() => this.diagnostics.gauge('engine.available', 0));
     this.closing = (async () => {
       // Drain or forcibly discard every old transport before releasing writer
       // ownership. An expired callback can no longer send a late COMMIT.
@@ -187,7 +240,66 @@ export class Exchange {
   }
 
   private assertWriter(): void {
-    if (!this.available || this.closed) throw new WriterUnavailableError();
+    if (!this.available || this.closed) {
+      this.writerUnavailable();
+      throw new WriterUnavailableError();
+    }
+  }
+
+  private diagnostic(work: () => void): void {
+    try {
+      work();
+    } catch {
+      /* Observation must never turn a committed result into a failed command. */
+    }
+  }
+
+  private diagnosticOutcome(error: unknown): DiagnosticOutcome {
+    return diagnosticOutcome(error);
+  }
+
+  private writerUnavailable(): void {
+    if (!this.diagnosticAvailable) return;
+    this.diagnosticAvailable = false;
+    this.diagnostic(() => {
+      this.diagnostics.gauge('engine.available', 0);
+      this.diagnostics.event('writer.unavailable', { outcome: 'unavailable' });
+    });
+  }
+
+  private faultState(faulted: boolean): void {
+    const changed = this.diagnosticFaulted !== faulted;
+    this.diagnosticFaulted = faulted;
+    this.diagnostic(() => {
+      this.diagnostics.gauge('engine.faulted', faulted ? 1 : 0);
+      if (changed)
+        this.diagnostics.event(faulted ? 'runtime.halted' : 'recovery.completed', {
+          outcome: faulted ? 'rejected' : 'ok',
+          operation: 'maintenance',
+        });
+    });
+  }
+
+  private async controlLock(tx: Transaction<Database>): Promise<Control> {
+    const start = performance.now();
+    let outcome: DiagnosticOutcome = 'ok';
+    let control: Control;
+    try {
+      control = await tx
+        .selectFrom('exchange_control')
+        .selectAll()
+        .where('id', '=', 1)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+    } catch (error) {
+      outcome = this.diagnosticOutcome(error);
+      throw error;
+    } finally {
+      this.diagnostic(() =>
+        this.diagnostics.observe('engine.lock', performance.now() - start, outcome),
+      );
+    }
+    return control;
   }
 
   private async lock(tx: Transaction<Database>, permitFault = false): Promise<Control> {
@@ -196,15 +308,14 @@ export class Exchange {
     await sql`SELECT set_config('lock_timeout', ${`${COMMAND_LOCK_TIMEOUT_MS}ms`}, true)`.execute(
       tx,
     );
-    const control = await tx
-      .selectFrom('exchange_control')
-      .selectAll()
-      .where('id', '=', 1)
-      .forUpdate()
-      .executeTakeFirstOrThrow();
+    const control = await this.controlLock(tx);
     this.assertWriter();
-    if (control.writer_epoch !== this.epoch) throw new WriterUnavailableError();
+    if (control.writer_epoch !== this.epoch) {
+      this.writerUnavailable();
+      throw new WriterUnavailableError();
+    }
     const fault = this.runtimeFault ?? control.fault;
+    this.faultState(Boolean(fault));
     if (fault && !permitFault) throw new RecoveryError(fault);
     admitRequest();
     await captureCommandTimestamp(tx);
@@ -262,7 +373,10 @@ export class Exchange {
   }
 
   clearRuntimeFault(expectedRevision: number): void {
-    if (expectedRevision === this.faultRevision) this.runtimeFault = null;
+    if (expectedRevision === this.faultRevision) {
+      this.runtimeFault = null;
+      this.faultState(false);
+    }
   }
 
   /** Internal lifecycle failure boundaries; hooks never come from HTTP input. */
@@ -307,6 +421,7 @@ export class Exchange {
             failed = true;
             this.faultRevision += 1;
             this.runtimeFault = 'Financial invariant failed; inspect journal and projections.';
+            this.faultState(true);
             // Keep the installation row lock while rolling back financial work.
             // Queued commands cannot pass between the failed trade and its halt.
             await sql`ROLLBACK TO SAVEPOINT financial_effects`.execute(tx);
@@ -473,86 +588,114 @@ export class Exchange {
   }
 
   private async command(
+    operation: 'limit_order' | 'market_order' | 'cancel_order',
     identity: CommandIdentity,
     hash: string,
     execute: (tx: Transaction<Database>, control: Control, sequence: string) => Promise<Outcome>,
     accessToken?: string,
     simulatorGeneration?: string,
   ): Promise<CommandResult> {
-    let replay = false;
-    const result = await this.financialTransaction<CommandResult>(
-      async (tx, control) => {
-        if (accessToken !== undefined) {
-          const actor = await requirePrincipal(tx, accessToken, 'TRADER');
-          if (actor.accountId !== identity.accountId)
-            throw new DomainError('NOT_ORDER_OWNER', 'Actor does not own this account.');
-        }
-        const prior = await this.receipt(tx, identity.accountId, identity.commandId, hash);
-        if (prior) {
-          replay = true;
-          return prior as unknown as CommandResult;
-        }
-        requireNoRollover(control);
-        const account = await tx
-          .selectFrom('accounts')
-          .select('kind')
-          .where('id', '=', identity.accountId)
-          .executeTakeFirst();
-        if (account?.kind !== 'TRADER')
-          throw new DomainError('INVALID_ACCOUNT', 'A known trader is required.');
-        const sequence = await this.sequence(tx, control);
-        // Fence queued simulator work under the same lock as stop/start and matching.
-        // Replaying a prior receipt above is safe: it cannot add new financial effects.
-        const simulator =
-          simulatorGeneration === undefined
-            ? undefined
-            : await tx
-                .selectFrom('demo_market')
-                .select(['enabled', 'generation', 'maker_account_id', 'taker_account_id'])
-                .where('session_id', '=', identity.sessionId)
+    return this.diagnostics.run(
+      { commandId: identity.commandId, sessionId: identity.sessionId, operation },
+      async () => {
+        let replay = false;
+        const start = performance.now();
+        let result: CommandResult;
+        try {
+          result = await this.financialTransaction<CommandResult>(
+            async (tx, control) => {
+              if (accessToken !== undefined) {
+                const actor = await requirePrincipal(tx, accessToken, 'TRADER');
+                if (actor.accountId !== identity.accountId)
+                  throw new DomainError('NOT_ORDER_OWNER', 'Actor does not own this account.');
+              }
+              const prior = await this.receipt(tx, identity.accountId, identity.commandId, hash);
+              if (prior) {
+                replay = true;
+                return prior as unknown as CommandResult;
+              }
+              requireNoRollover(control);
+              const account = await tx
+                .selectFrom('accounts')
+                .select('kind')
+                .where('id', '=', identity.accountId)
                 .executeTakeFirst();
-        const staleSimulator =
-          simulatorGeneration !== undefined &&
-          (!simulator?.enabled ||
-            simulator.generation !== simulatorGeneration ||
-            ![simulator.maker_account_id, simulator.taker_account_id].includes(identity.accountId));
-        const outcome =
-          control.active_session_id !== identity.sessionId
-            ? rejection('STALE_SESSION')
-            : staleSimulator
-              ? rejection('STALE_SIMULATOR')
-              : simulatorGeneration !== undefined && control.market_state !== 'TRADING'
-                ? rejection('MARKET_PAUSED')
-                : await execute(tx, control, sequence);
-        const result: CommandResult = {
-          commandId: identity.commandId,
-          sessionId: identity.sessionId,
-          sequence,
-          ...outcome,
-        };
-        await this.persistReceipt(tx, identity, hash, sequence, result, 'COMMAND_COMPLETED');
-        // Flush deferred financial checks before exposing the crash injection boundary.
-        await sql`SET CONSTRAINTS ALL IMMEDIATE`.execute(tx);
-        await this.options.hooks?.beforeCommit?.(identity.commandId);
-        this.assertWriter();
-        return result;
-      },
-      async (tx, control) => {
-        const sequence = await this.sequence(tx, control);
-        const result: CommandResult = {
-          commandId: identity.commandId,
-          sessionId: identity.sessionId,
-          sequence,
-          status: 'REJECTED',
-          code: 'INVARIANT_FAILURE',
-          fills: [],
-        };
-        await this.persistReceipt(tx, identity, hash, sequence, result, 'COMMAND_FAILED');
+              if (account?.kind !== 'TRADER')
+                throw new DomainError('INVALID_ACCOUNT', 'A known trader is required.');
+              const sequence = await this.sequence(tx, control);
+              // Fence queued simulator work under the same lock as stop/start and matching.
+              // Replaying a prior receipt above is safe: it cannot add new financial effects.
+              const simulator =
+                simulatorGeneration === undefined
+                  ? undefined
+                  : await tx
+                      .selectFrom('demo_market')
+                      .select(['enabled', 'generation', 'maker_account_id', 'taker_account_id'])
+                      .where('session_id', '=', identity.sessionId)
+                      .executeTakeFirst();
+              const staleSimulator =
+                simulatorGeneration !== undefined &&
+                (!simulator?.enabled ||
+                  simulator.generation !== simulatorGeneration ||
+                  ![simulator.maker_account_id, simulator.taker_account_id].includes(
+                    identity.accountId,
+                  ));
+              const outcome =
+                control.active_session_id !== identity.sessionId
+                  ? rejection('STALE_SESSION')
+                  : staleSimulator
+                    ? rejection('STALE_SIMULATOR')
+                    : simulatorGeneration !== undefined && control.market_state !== 'TRADING'
+                      ? rejection('MARKET_PAUSED')
+                      : await execute(tx, control, sequence);
+              const result: CommandResult = {
+                commandId: identity.commandId,
+                sessionId: identity.sessionId,
+                sequence,
+                ...outcome,
+              };
+              await this.persistReceipt(tx, identity, hash, sequence, result, 'COMMAND_COMPLETED');
+              // Flush deferred financial checks before exposing the crash injection boundary.
+              await sql`SET CONSTRAINTS ALL IMMEDIATE`.execute(tx);
+              await this.options.hooks?.beforeCommit?.(identity.commandId);
+              this.assertWriter();
+              return result;
+            },
+            async (tx, control) => {
+              const sequence = await this.sequence(tx, control);
+              const result: CommandResult = {
+                commandId: identity.commandId,
+                sessionId: identity.sessionId,
+                sequence,
+                status: 'REJECTED',
+                code: 'INVARIANT_FAILURE',
+                fills: [],
+              };
+              await this.persistReceipt(tx, identity, hash, sequence, result, 'COMMAND_FAILED');
+              return result;
+            },
+          );
+        } catch (error) {
+          const outcome = this.diagnosticOutcome(error);
+          this.diagnostic(() => {
+            this.diagnostics.observe('engine.command', performance.now() - start, outcome);
+            this.diagnostics.event('command.completed', { outcome });
+          });
+          throw error;
+        }
+        // The transaction has committed before reporting its financial outcome.
+        // A subsequent lost reply cannot relabel an accepted command as rolled back.
+        this.diagnostic(() => {
+          const outcome = result.status === 'ACCEPTED' ? 'accepted' : 'rejected';
+          this.diagnostics.observe('engine.command', performance.now() - start, outcome);
+          this.diagnostics.event('command.completed', { outcome, sequence: result.sequence });
+          if (replay)
+            this.diagnostics.event('command.replayed', { outcome, sequence: result.sequence });
+        });
+        if (!replay) await this.options.hooks?.afterCommit?.(identity.commandId);
         return result;
       },
     );
-    if (!replay) await this.options.hooks?.afterCommit?.(identity.commandId);
-    return result;
   }
 
   async placeLimit(
@@ -578,6 +721,7 @@ export class Exchange {
       price: formatPrice(price),
     });
     return this.command(
+      'limit_order',
       input,
       hash,
       async (tx, control, sequence) => {
@@ -715,6 +859,7 @@ export class Exchange {
       previewId: input.previewId,
     });
     return this.command(
+      'market_order',
       input,
       hash,
       async (tx, control, sequence) => {
@@ -955,6 +1100,7 @@ export class Exchange {
       orderId: input.orderId,
     });
     return this.command(
+      'cancel_order',
       input,
       hash,
       async (tx) => {
@@ -1095,7 +1241,7 @@ export class Exchange {
   }
 
   async reconcile(): Promise<{ ok: boolean; issues: string[] }> {
-    return withDatabaseBudget(this.db, 'maintenance', () =>
+    const report = await withDatabaseBudget(this.db, 'maintenance', () =>
       this.db.transaction().execute(async (tx) => {
         await this.lock(tx, true);
         const report = await reconcileDatabase(tx);
@@ -1108,5 +1254,7 @@ export class Exchange {
         return report;
       }),
     );
+    if (!report.ok) this.faultState(true);
+    return report;
   }
 }

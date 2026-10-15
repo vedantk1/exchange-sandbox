@@ -18,8 +18,17 @@ import {
 interface Runtime {
   budgets: DatabaseBudgets;
   closeTimeoutMs: number;
+  observer: ((event: DatabaseObservation) => void) | undefined;
 }
 const runtimes = new WeakMap<Kysely<Database>, Runtime>();
+
+export type DatabaseObservation = {
+  outcome: 'ok' | 'timeout' | 'lock_timeout' | 'error';
+  durationMs: number;
+} & (
+  | { phase: 'acquire' | 'query' | 'budget'; kind: DatabaseBudgetKind }
+  | { phase: 'shutdown'; kind: 'shutdown' }
+);
 
 export interface DatabaseOptions {
   max?: number;
@@ -27,17 +36,57 @@ export interface DatabaseOptions {
   budgets?: DatabaseBudgets;
   acquireTimeoutMs?: number;
   closeTimeoutMs?: number;
+  /** Aggregate operational signals only; SQL, values, and errors never leave this adapter. */
+  observer?: (event: DatabaseObservation) => void;
+}
+
+function outcome(error: unknown): DatabaseObservation['outcome'] {
+  try {
+    if (error instanceof DatabaseTimeoutError) return 'timeout';
+    const code = (error as { code?: unknown } | null)?.code;
+    if (code === '55P03') return 'lock_timeout';
+    if (code === '57014' || code === '25P03' || code === '25P04') return 'timeout';
+  } catch {
+    // An error's custom accessors must not replace the original work failure.
+  }
+  return 'error';
+}
+
+function observe(runtime: Runtime, event: DatabaseObservation): void {
+  try {
+    // A callback's return value has no effect on database work. Consume rejected
+    // promises too, should a caller accidentally supply an async observer.
+    const result: unknown = runtime.observer?.(event);
+    if (result && typeof (result as PromiseLike<unknown>).then === 'function')
+      void Promise.resolve(result).catch(() => undefined);
+  } catch {
+    // Diagnostics must never change commit, rollback, or transport fencing.
+  }
 }
 
 /** All production transactions select a budget before acquiring a connection. */
-export function withDatabaseBudget<T>(
+export async function withDatabaseBudget<T>(
   database: Kysely<Database>,
   kind: DatabaseBudgetKind,
   work: () => Promise<T>,
 ): Promise<T> {
   const runtime = runtimes.get(database);
   if (!runtime) throw new Error('Database runtime is not managed.');
-  return runBudget(runtime, kind, runtime.budgets[kind], work);
+  const started = performance.now();
+  let result: DatabaseObservation['outcome'] = 'ok';
+  try {
+    return await runBudget(runtime, kind, runtime.budgets[kind], work);
+  } catch (error) {
+    result = outcome(error);
+    throw error;
+  } finally {
+    observe(runtime, {
+      phase: 'budget',
+      kind,
+      outcome: result,
+      durationMs: performance.now() - started,
+    });
+  }
 }
 
 export function createDatabase(
@@ -47,6 +96,7 @@ export function createDatabase(
   const runtime: Runtime = {
     budgets: options.budgets ?? DEFAULT_DATABASE_BUDGETS,
     closeTimeoutMs: options.closeTimeoutMs ?? DATABASE_CLOSE_TIMEOUT_MS,
+    observer: options.observer,
   };
   const acquireTimeoutMs = options.acquireTimeoutMs ?? DATABASE_ACQUIRE_TIMEOUT_MS;
   const limits = [
@@ -101,18 +151,35 @@ export function createDatabase(
   const managedPool = {
     options: pool.options,
     async connect(): Promise<Pick<PoolClient, 'query' | 'release'> & { processID: number }> {
+      const started = performance.now();
       const scope = databaseScope.getStore();
       const ownedScope = scope?.owner === runtime ? scope : undefined;
-      if (ownedScope) remaining(ownedScope);
+      const kind = ownedScope?.kind ?? 'read';
+      let acquisitionReported = false;
+      function acquired(result: DatabaseObservation['outcome']): void {
+        if (acquisitionReported) return;
+        acquisitionReported = true;
+        observe(runtime, {
+          phase: 'acquire',
+          kind,
+          outcome: result,
+          durationMs: performance.now() - started,
+        });
+      }
       let client: PoolClient;
       try {
+        if (ownedScope) remaining(ownedScope);
         client = await pool.connect();
       } catch (error) {
         if (
-          error instanceof Error &&
-          /(?:timeout exceeded when trying to connect|connection timeout)/i.test(error.message)
-        )
-          throw new DatabaseTimeoutError(ownedScope?.kind ?? 'read');
+          ownedScope?.expired ||
+          (error instanceof Error &&
+            /(?:timeout exceeded when trying to connect|connection timeout)/i.test(error.message))
+        ) {
+          acquired('timeout');
+          throw new DatabaseTimeoutError(kind);
+        }
+        acquired(outcome(error));
         throw error;
       }
       let released = false;
@@ -141,9 +208,11 @@ export function createDatabase(
       ownedScope?.connections.add(lease);
       const budget = ownedScope?.budget ?? runtime.budgets.read;
       async function query(text: string, parameters: readonly unknown[]) {
-        if (discarded || released) throw new DatabaseTimeoutError(ownedScope?.kind ?? 'read');
+        const queryStarted = performance.now();
         let timeout: NodeJS.Timeout | undefined;
+        let result: DatabaseObservation['outcome'] = 'ok';
         try {
+          if (discarded || released) throw new DatabaseTimeoutError(kind);
           const deadlineMs = ownedScope ? remaining(ownedScope) : budget.totalMs;
           timeout = setTimeout(() => lease.discard(), deadlineMs);
           return await client.query(text, [...parameters]);
@@ -152,15 +221,23 @@ export function createDatabase(
           // Session-ending timeouts cannot accept Kysely's rollback. Dispose
           // first so rollback and any continuation retain the typed timeout.
           if (code === '25P03' || code === '25P04') lease.discard();
-          if (discarded) throw new DatabaseTimeoutError(ownedScope?.kind ?? 'read');
+          result = discarded ? 'timeout' : outcome(error);
+          if (discarded) throw new DatabaseTimeoutError(kind);
           throw error;
         } finally {
           clearTimeout(timeout);
+          observe(runtime, {
+            phase: 'query',
+            kind,
+            outcome: result,
+            durationMs: performance.now() - queryStarted,
+          });
         }
       }
       try {
         // Late pool acquisitions after an expired scope never begin SQL work.
         if (ownedScope) remaining(ownedScope);
+        acquired('ok');
         const totalMs = ownedScope ? remaining(ownedScope) : budget.totalMs;
         // Let PostgreSQL's session-ending timers report an error before the
         // hard local transport fence; the margin is never extra execution time.
@@ -183,22 +260,36 @@ export function createDatabase(
           processID: (client as PoolClient & { processID: number }).processID,
         };
       } catch (error) {
+        acquired(outcome(error));
         lease.discard();
         throw error;
       }
     },
     async end(): Promise<void> {
+      const started = performance.now();
+      let result: DatabaseObservation['outcome'] = 'ok';
+      let timedOut = false;
       // Drain first. At the deadline close all transports and discard leases,
       // then still await actual socket end before the caller releases its guard.
       const timeout = setTimeout(() => {
+        timedOut = true;
         for (const lease of borrowed) lease.discard();
         for (const client of clients.keys()) disconnect(client);
       }, runtime.closeTimeoutMs);
       try {
         await pool.end();
         await Promise.all(clients.values());
+      } catch (error) {
+        result = outcome(error);
+        throw error;
       } finally {
         clearTimeout(timeout);
+        observe(runtime, {
+          phase: 'shutdown',
+          kind: 'shutdown',
+          outcome: timedOut ? 'timeout' : result,
+          durationMs: performance.now() - started,
+        });
       }
     },
   };

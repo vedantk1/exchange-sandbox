@@ -1,4 +1,5 @@
 import Fastify, { LogController, type FastifyReply, type FastifyRequest } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
@@ -26,6 +27,9 @@ import {
 import { LiveUpdates, type LiveOptions } from './live.js';
 import { AdmissionError, installHttpAdmission, type HttpAdmissionOptions } from './admission.js';
 import { HistoryExports, type HistoryExportsOptions } from './history/prepared-export.js';
+import { diagnosticContext } from './diagnostic-context.js';
+import { diagnosticOutcome } from './diagnostic-outcome.js';
+import type { DiagnosticOutcome } from './diagnostics.js';
 
 export interface ApiOptions {
   exchange: Exchange;
@@ -57,6 +61,7 @@ export async function buildApi(options: ApiOptions) {
   if (options.secureCookies && expectedOrigin.protocol !== 'https:')
     throw new Error('Secure cookies require an HTTPS origin.');
   const app = Fastify({
+    genReqId: () => randomUUID(),
     logger: options.logger
       ? {
           level: 'info',
@@ -76,7 +81,13 @@ export async function buildApi(options: ApiOptions) {
     connectionTimeout: 15_000,
     ajv: { customOptions: { coerceTypes: false, removeAdditional: false, useDefaults: false } },
   }).withTypeProvider<TypeBoxTypeProvider>();
-  const admission = installHttpAdmission(app, options.admission);
+  const diagnostics = options.exchange.diagnostics;
+  const requestOutcomes = new WeakMap<FastifyRequest, DiagnosticOutcome>();
+  // Use only the server-generated identity, including requests rejected at admission.
+  app.addHook('onRequest', async (request, reply) => {
+    reply.header('X-Request-Id', request.id);
+  });
+  const admission = installHttpAdmission(app, options.admission, diagnostics);
   const { auth, exchange } = options;
   const admin = options.admin ?? new AdminService(exchange);
   const live = new LiveUpdates(exchange, options.live);
@@ -119,6 +130,25 @@ export async function buildApi(options: ApiOptions) {
     }
   });
   app.addHook('onResponse', async (request, reply) => {
+    const outcome =
+      requestOutcomes.get(request) ??
+      (reply.statusCode < 400
+        ? 'ok'
+        : reply.statusCode === 429
+          ? 'busy'
+          : reply.statusCode === 409
+            ? 'conflict'
+            : reply.statusCode === 503
+              ? 'unavailable'
+              : reply.statusCode < 500
+                ? 'rejected'
+                : 'error');
+    diagnostics.observe('http.request', reply.elapsedTime, outcome);
+    diagnostics.event('request.completed', {
+      ...diagnosticContext(request),
+      outcome,
+      statusCode: reply.statusCode,
+    });
     request.log.info(
       {
         requestId: request.id,
@@ -131,6 +161,7 @@ export async function buildApi(options: ApiOptions) {
     );
   });
   app.setErrorHandler((error, request, reply) => {
+    requestOutcomes.set(request, diagnosticOutcome(error));
     if (error instanceof AdmissionError)
       return reply.code(503).send({ code: error.code, message: error.message });
     if (error instanceof AuthError)
@@ -577,6 +608,18 @@ export async function buildApi(options: ApiOptions) {
             return safe;
           });
         return result;
+      }),
+  );
+  app.get(
+    '/api/admin/diagnostics',
+    {
+      preHandler: protect('ADMIN'),
+      schema: { security, response: { 200: S.DiagnosticsSnapshot, ...errors } },
+    },
+    async (request) =>
+      exchange.readTransaction(async (tx) => {
+        await requirePrincipal(tx, token(request), 'ADMIN');
+        return diagnostics.snapshot();
       }),
   );
   app.get(

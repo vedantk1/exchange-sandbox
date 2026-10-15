@@ -7,6 +7,7 @@ import type {
   WorkspaceView,
 } from '../../../packages/contracts/src/index.js';
 import { TrustedHttps } from './https.js';
+import type { DiagnosticsSnapshot } from '../../../apps/server/src/diagnostics.js';
 
 interface JourneyOptions {
   origin: string;
@@ -662,6 +663,9 @@ export async function runJourney(options: JourneyOptions): Promise<Record<string
         throw new AcceptanceJourneyError(checkpoint);
       }
     });
+    const diagnosticsBeforeRestart = await stage('ACCEPTANCE_DIAGNOSTICS_FAILED', () =>
+      operator.json<DiagnosticsSnapshot>('GET', '/api/admin/diagnostics'),
+    );
     await stage('ACCEPTANCE_RESTART_FAILED', async () => {
       events?.close();
       events = undefined;
@@ -724,6 +728,27 @@ export async function runJourney(options: JourneyOptions): Promise<Record<string
         .click();
       await expect(seller.getByRole('row').filter({ hasText: 'Canceled' })).toContainText('0.1000');
     });
+    await stage('ACCEPTANCE_DIAGNOSTICS_FAILED', async () => {
+      const diagnostics = await operator.json<DiagnosticsSnapshot>('GET', '/api/admin/diagnostics');
+      check((await buyApi.response('GET', '/api/admin/diagnostics')).status === 403);
+      check(diagnostics.schemaVersion === 1 && diagnostics.histogramSemantics === 'cumulative');
+      check(Date.parse(diagnostics.startedAt) > Date.parse(diagnosticsBeforeRestart.startedAt));
+      check(diagnostics.timings['engine.command'].count >= 1);
+      check(diagnostics.timings['engine.lock'].count > 0);
+      check(diagnostics.events['command.replayed'] >= 1);
+      check(
+        diagnostics.gauges['engine.available'] === 1 && diagnostics.gauges['engine.faulted'] === 0,
+      );
+      check(diagnostics.gauges['live.connections'] > 0);
+      const serialized = JSON.stringify(diagnostics);
+      for (const privateValue of [
+        options.password,
+        initial.command.commandId,
+        initial.bought.user.accountId,
+        initial.sold.user.accountId,
+      ])
+        check(!serialized.includes(privateValue));
+    });
     return {
       compiledUiLogin: true,
       invitationRedemption: true,
@@ -737,6 +762,7 @@ export async function runJourney(options: JourneyOptions): Promise<Record<string
       sessionPreservedAfterRestart: true,
       originalReceiptReplay: true,
       restartAccountingPreserved: true,
+      operationalDiagnostics: true,
     };
   } catch (error) {
     if (error instanceof AcceptanceJourneyError) throw error;

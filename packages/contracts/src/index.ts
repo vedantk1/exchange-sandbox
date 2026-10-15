@@ -419,6 +419,37 @@ export type CommandHistoryView = Static<typeof CommandHistory>;
 export type CandleView = Static<typeof Candle>;
 
 export const PageCursor = Type.String({ minLength: 1, maxLength: 2048 });
+const DiagnosticNumber = Type.Number({ minimum: 0 });
+/** Operational numbers are approximate process measurements, never financial amounts. */
+export const DiagnosticsSnapshot = Type.Object({
+  schemaVersion: Type.Literal(1),
+  startedAt: Type.String(),
+  generatedAt: Type.String(),
+  uptimeSeconds: DiagnosticNumber,
+  process: Type.Object({
+    rssBytes: DiagnosticNumber,
+    heapUsedBytes: DiagnosticNumber,
+    heapTotalBytes: DiagnosticNumber,
+  }),
+  histogramSemantics: Type.Literal('cumulative'),
+  timings: Type.Record(
+    Type.String(),
+    Type.Object({
+      count: DiagnosticNumber,
+      totalMs: DiagnosticNumber,
+      maxMs: DiagnosticNumber,
+      outcomes: Type.Record(Type.String(), DiagnosticNumber),
+      buckets: Type.Array(
+        Type.Object({
+          upperBoundMs: Type.Union([DiagnosticNumber, Type.Null()]),
+          count: DiagnosticNumber,
+        }),
+      ),
+    }),
+  ),
+  events: Type.Record(Type.String(), DiagnosticNumber),
+  gauges: Type.Record(Type.String(), DiagnosticNumber),
+});
 export const PageLimit = Type.String({ pattern: '^(100|[1-9][0-9]?)$' });
 export const SessionSummary = Type.Object({
   id: Id,

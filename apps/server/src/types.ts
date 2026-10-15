@@ -1,5 +1,6 @@
 import type { OrderStatus, Side } from '@sandbox/domain';
 import type { DatabaseOptions } from '@sandbox/database';
+import type { Diagnostics } from './diagnostics.js';
 
 export interface CommandIdentity {
   accountId: string;
@@ -83,6 +84,8 @@ export interface Snapshot {
 
 /** Failure injection at transaction boundaries; never supplied by a remote caller. */
 export interface ExchangeOptions {
+  /** Process-local diagnostics; never supplied or configured by a remote caller. */
+  diagnostics?: Diagnostics;
   /** Trusted local resource configuration; never accepted from an HTTP caller. */
   database?: Omit<DatabaseOptions, 'onError'>;
   migrations?: 'apply' | 'verify';

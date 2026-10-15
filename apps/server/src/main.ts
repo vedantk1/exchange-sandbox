@@ -4,10 +4,13 @@ import { Exchange, WriterUnavailableError } from './exchange.js';
 import { DemoMarket } from './demo-market/service.js';
 import { configuredDatabaseUrl } from './config/database-url.js';
 import { createShutdown } from './shutdown.js';
+import { Diagnostics } from './diagnostics.js';
+import { createDiagnosticOutput } from './diagnostic-output.js';
 
 let exchange: Exchange | undefined;
 let app: Awaited<ReturnType<typeof buildApi>> | undefined;
 let simulator: DemoMarket | undefined;
+const diagnosticOutput = createDiagnosticOutput(process.stdout);
 
 function safeCode(error: unknown): string {
   const code = (error as { code?: unknown })?.code;
@@ -17,7 +20,13 @@ function safeCode(error: unknown): string {
 const close = createShutdown({
   stopSimulator: async () => simulator?.close(),
   closeHttp: async () => app?.close(),
-  closeExchange: async () => exchange?.close(),
+  closeExchange: async () => {
+    try {
+      await exchange?.close();
+    } finally {
+      diagnosticOutput.close();
+    }
+  },
   terminate: () => {
     console.error('Server shutdown could not finish safely; restart to resolve original commands.');
     // Do not release the guard separately while an old backend might still be
@@ -46,7 +55,11 @@ try {
   if (!secureCookies && (!loopback || process.env.NODE_ENV === 'production'))
     throw new Error('HTTP is permitted only for loopback development.');
 
+  const diagnostics = new Diagnostics({
+    sink: diagnosticOutput.write,
+  });
   exchange = await Exchange.open(databaseUrl, {
+    diagnostics,
     allowFaultedStartup: true,
     migrations: process.env.NODE_ENV === 'production' ? 'verify' : 'apply',
   });

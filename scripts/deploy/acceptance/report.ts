@@ -12,6 +12,7 @@ export const JOURNEY_CHECKS = [
   'sessionPreservedAfterRestart',
   'originalReceiptReplay',
   'restartAccountingPreserved',
+  'operationalDiagnostics',
 ] as const;
 
 export const SETUP_CHECKS = [

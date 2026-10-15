@@ -70,6 +70,7 @@ export async function createApiFixture(
     exports?: HistoryExportsOptions;
     hooks?: ExchangeOptions['hooks'];
     database?: ExchangeOptions['database'];
+    diagnostics?: ExchangeOptions['diagnostics'];
     origin?: string;
     proxyHops?: 0 | 1;
   } = {},
@@ -103,6 +104,7 @@ export async function createApiFixture(
       allowFaultedStartup: true,
       ...(options.hooks ? { hooks: options.hooks } : {}),
       ...(options.database ? { database: options.database } : {}),
+      ...(options.diagnostics ? { diagnostics: options.diagnostics } : {}),
     });
     auth = new AuthService(exchange);
     app = await buildApi({

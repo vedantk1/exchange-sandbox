@@ -15,6 +15,8 @@ pnpm demo
 
 The test and demo wrappers create isolated temporary PostgreSQL clusters. CI uses its separate PostgreSQL service. Browser tests run actual development pages and APIs in independent schemas, including lost responses and real preview expiry. Process-loss tests send `SIGKILL` at known transaction boundaries.
 
+The [operator runbook](OPERATIONS.md) explains how to correlate a browser's `X-Request-Id` with committed command outcomes and inspect the administrator-only diagnostic snapshot. This demonstrates maintainability without requiring a hosted metrics service. Diagnostics verification is separate from the previously recorded workload, restore and Compose acceptance results below; the new instrumentation does not establish additional hosting capacity.
+
 ## Walkthrough
 
 Use two browser profiles for the two traders. Keep the simulator stopped for the exact arithmetic demonstration.
@@ -67,6 +69,8 @@ The deployment trusts exactly one private proxy hop for client authentication th
 
 The latest update requires `010_migration_checksums`. It adds checksum provenance and constraints to migration metadata without rewriting financial rows. The additional version marker makes earlier runtimes reject the upgraded installation. The migration service also reprovisions the runtime role with updates limited to the five execution fields and no order deletion/truncation privilege. Earlier migration 009 adds read indexes without rewriting financial rows. Index creation runs with the API stopped under the owner maintenance budget; a large existing installation may require a rehearsed maintenance window. Prepared CSVs use the private disk-backed `history_exports` volume; its contents are temporary, excluded from database backups, and removed on restart. Do not move this volume to `/tmp` tmpfs when assessing container memory. Earlier migration `007_command_timestamps` changes future command timestamp defaults. Database budgets, transport disposal, and the 25-second process shutdown deadline are documented in [architecture](ARCHITECTURE.md#database-budgets-and-shutdown). Retain Compose's 30-second stop grace period. A forced shutdown or lost commit reply requires original-command recovery after restart; it does not justify manually releasing writer locks or deleting receipts.
 
+Operational diagnostics requires no new migration, volume, monitoring account or configuration secret. Its aggregates reset with the API process. Keep API stdout collection bounded and inspect `diagnostics.dropped_events` before assuming a log search is complete; do not enable request-body, raw SQL or transport tracing to compensate for dropped events. Database authentication is still required to read `/api/admin/diagnostics`, so the [runbook](OPERATIONS.md) also covers failures where that endpoint cannot respond.
+
 ### Adopt a names-only installation
 
 Fresh installations record checksums automatically. Existing installations that only recorded migration names stop with `MIGRATION_ADOPTION_REQUIRED`; startup never backfills hashes silently. Rehearse this process on a restored backup before upgrading an installation you need to preserve.
@@ -95,6 +99,8 @@ After building API and operations images, reproduce the runtime check with `pnpm
 Static `/assets/*` paths use file-only routing. Missing deployment chunks return 404 with `no-store`; current assets retain immutable cache headers, and SPA deep links return the entry document with `no-cache`. The React recovery screen catches failed lazy imports after the app starts, preserves pending identities, and offers an explicit reload. It cannot recover a missing initial entry script. After building the web image, reproduce the trusted-HTTPS routing regression with `pnpm exec tsx scripts/deploy/verify-assets.ts spot-exchange-simulator-web:local`. It creates and removes its own temporary container and trusts only that container's local CA; CI runs it against the CI image.
 
 ### Fresh Compose acceptance
+
+The current acceptance contract requires 19 setup/HTTPS/journey checks, including administrator-only operational diagnostics, a new process window after restart and original-receipt replay signals. Four cleanup confirmations remain independently required. The retained local and CI reports later in this guide are the original 18-check evidence for their recorded commits; they have not been rewritten to imply that the new diagnostics check ran.
 
 `pnpm selfhost:acceptance [api-image] [web-image]` tests the packaged application through a new, isolated Compose installation. It requires Node.js/pnpm as above, a running Docker daemon with Compose, Python 3 on Linux or macOS, and Playwright Chromium. Python's standard-library PTY bridge supplies a real terminal to the ordinary interactive owner setup command; it is only an acceptance-harness prerequisite, not an application runtime dependency. Generated administrator credentials travel through that terminal in memory, never command arguments, environment variables, or a saved transcript.
 
@@ -144,6 +150,8 @@ The Docker restore exercise uses the configured PostgreSQL service to create fre
 The reproducible workload measures committed matching commands against real PostgreSQL, reports latency and throughput for its explicit configuration, and checks financial reconciliation and receipt replay. It identifies the runtime, platform, workload, and concurrency without machine or user identifiers. Results establish the measured workload only; they do not claim general hosting capacity, internet latency, or real-money readiness.
 
 ## Recorded local operational results
+
+The 2026-10-15 diagnostics validation rebuilt all three self-host images and passed the extended 19-check Compose HTTPS journey, including administrator-only diagnostics, a new process observation window after restart and original-receipt replay signals. All four cleanup confirmations passed. This local run used uncommitted changes and explicitly recorded `source.dirty: true`; its ignored report is not evidence for a clean published revision or a new GitHub Actions run. The retained reports below preserve their original source and 18-check scope. No sustained-load or restore workload was remeasured in this diagnostics milestone.
 
 The 2026-10-15 [fresh Compose acceptance report](evidence/self-host-acceptance-result.json) records a clean-source local run of commit `e2e128c` with CI checks enabled. All 18 setup/HTTPS/journey checks and all four cleanup checks passed; the running API/web image IDs and revision labels matched that source. All three image targets rebuilt successfully. A separate real SIGTERM before browser traffic produced a failed report with every cleanup check verified, and the fallback cleanup command passed again with no recorded runs left. These are local macOS/Docker results. The earlier operational results below retain their original scope; the remote Linux run is recorded separately in the acceptance evidence below.
 

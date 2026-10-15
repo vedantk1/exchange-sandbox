@@ -43,6 +43,7 @@ The demo, integration, and browser test runners start real, temporary PostgreSQL
 - Protected market orders with a server-bound 5% price guard, a 10-second preview, immediate execution, and explicit canceled remainders.
 - Durable command identity: retries resolve the original outcome, while changed payloads are rejected.
 - Bounded database work and shutdown, isolated market reads, coherent admission timestamps, and frontend recovery that preserves unresolved commands.
+- Process-local operational diagnostics for request/command correlation, database budgets, lock waits, live connections, exports, simulator cycles, and recovery state.
 - Startup reconciliation and tests that kill an actual application process before commit or after commit but before acknowledgement.
 - Hashed credentials and tokens, transactional invitation redemption, session revocation, and CSRF-protected API commands.
 - Audited pause/resume, grants, administrative cancellation, and suspension with fault-safe access revocation.
@@ -72,6 +73,7 @@ Recorded results and their limits are documented in the [development evidence](d
 - [System architecture and stack](docs/ARCHITECTURE.md): accepted design, alternatives, boundaries, and future work.
 - [Development and validation](docs/DEVELOPMENT.md): local commands, core API, persistence, and test evidence.
 - [HTTP API](docs/API.md): routes, authentication, request examples, and retry behavior.
+- [Operations and troubleshooting](docs/OPERATIONS.md): private diagnostics, signal interpretation, and safe recovery steps.
 - [Release and walkthrough](docs/RELEASE.md): self-host packaging, acceptance evidence, restore/workload exercises, screenshots, and contribution guidance.
 
 Workspace snapshots show bounded recent history; complete pages reach older records. Exports explicitly reject oversized bundles instead of silently truncating. Real funds remain outside scope.
