@@ -69,6 +69,49 @@ function client(
   );
 }
 
+/** Observe anonymous session bootstrap before navigation; every failure exposes only a fixed code. */
+export async function openLoginPage(
+  page: Page,
+  origin: string,
+  role: 'ADMIN' | 'SELLER' | 'BUYER',
+): Promise<void> {
+  const prefix = `ACCEPTANCE_LOGIN_${role}`;
+  // Attach both handlers immediately. If navigation fails first, a later closed
+  // page or bounded response timeout cannot create an unhandled rejection.
+  const session = page
+    .waitForResponse(
+      (response) =>
+        response.url() === `${origin}/api/auth/session` && response.request().method() === 'GET',
+      { timeout: 12_000 },
+    )
+    .then(
+      (response) => response,
+      () => undefined,
+    );
+  await stage(`${prefix}_NAVIGATION_FAILED`, async () => {
+    const document = await page.goto(`${origin}/login`, { timeout: 12_000 });
+    const status = document?.status() ?? 0;
+    if (status !== 200) {
+      throw new AcceptanceJourneyError(
+        `${prefix}_DOCUMENT_HTTP_${status >= 100 && status <= 599 ? status : 'OTHER'}_FAILED`,
+      );
+    }
+  });
+  const response = await session;
+  if (!response) throw new AcceptanceJourneyError(`${prefix}_SESSION_FAILED`);
+  const status = response.status();
+  if (status !== 401) {
+    throw new AcceptanceJourneyError(
+      `${prefix}_SESSION_HTTP_${status >= 100 && status <= 599 ? status : 'OTHER'}_FAILED`,
+    );
+  }
+  await stage(`${prefix}_RENDER_FAILED`, async () => {
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible({
+      timeout: 12_000,
+    });
+  });
+}
+
 async function login(page: Page, options: JourneyOptions, handle: string): Promise<void> {
   const role = {
     acceptance_admin: 'ADMIN',
@@ -76,10 +119,7 @@ async function login(page: Page, options: JourneyOptions, handle: string): Promi
     acceptance_buyer: 'BUYER',
   }[handle];
   check(role);
-  await stage(`ACCEPTANCE_LOGIN_${role}_NAVIGATION_FAILED`, async () => {
-    await page.goto(`${options.origin}/login`);
-    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
-  });
+  await openLoginPage(page, options.origin, role as 'ADMIN' | 'SELLER' | 'BUYER');
   await stage(`ACCEPTANCE_LOGIN_${role}_SUBMISSION_FAILED`, async () => {
     await page.getByLabel(/^Handle/).fill(handle);
     await page.getByLabel('Password', { exact: true }).fill(options.password);
