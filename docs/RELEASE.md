@@ -14,25 +14,40 @@ Milestone status and remaining work:
 | -------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Implemented          | Finish the visible trader/admin experience | Exact textual candles, stable archive summaries with explicit metadata refresh, validated history URLs with reload/Back/Forward, and password/recovery/keyboard browser regressions are delivered.                                                                                                                                                 |
 | Implemented          | Curate the portfolio entry point           | The README now leads with a representative trader image and three evidence-linked claims, plus an administrator/simulator view, a continuous recorded walkthrough and a concise engineering case study.                                                                                                                                            |
+| Implemented          | Open a disposable reviewer demo            | One command opens genuinely authenticated trader/admin windows against temporary development services. A headless smoke mode checks the same seeded scenario; explicit capture mode keeps private browser-state handling separate.                                                                                                                 |
+| Release verification | Bound repeated packaged startup checks     | Five fresh full Compose/HTTPS journeys use one source/image identity, stop at the first failure and retain only an allowlisted aggregate report. Passing runs do not establish a cause or fix for the intermittent initial-login failure.                                                                                                          |
 | Bounded follow-up    | Validate packaged resource limits          | Agree a normal workload, overload probe, duration and latency/resource targets before running Compose/HTTPS with trading, reads, exports, live clients and login bursts. Measure container memory/OOM events, rejections, resource release, receipt recovery and final reconciliation; fix demonstrated failures and publish the supported limits. |
 | Deferred maintenance | Define ephemeral-record retention          | Establish explicit age/reference rules before deleting expired authentication records or unused previews. Preserve used previews, receipts, journal, audit and recovery evidence. Prioritize implementation if measured growth or operator use warrants it.                                                                                        |
 
 The resource question is concrete but still open: the recorded 479.06 MiB peak came from a 3.804-second development-process workload, whereas the packaged API has a 512 MiB/one-CPU limit. Those are different measurement contexts and do not establish an OOM failure or a supported capacity. The load plan must retain the current HTTP protections: 600 requests/minute per client IP and 20/minute on rate-limited authentication routes. A single-IP driver cannot sustain the earlier proposed 20 commands/second through those limits; disclose client topology and distinguish expected throttling from ordinary-workload failures.
 
-The usability and presentation milestone supplies the focused checks, current screenshots, walkthrough and case study. The showcase finish line is a reviewed, reproducible version with green CI. It can be evaluated with the current disclosed limits while the separate capacity exercise is pending. Add a version tag and release notes after that review. Microservices, brokers, additional markets/order types, external monitoring storage and a diagnostics dashboard remain deferred until a measured or accepted product requirement justifies them. A hosted demo remains outside the chosen delivery.
+The reviewer launcher, focused checks, current screenshots, walkthrough and case study supply the showcase entry point. The [v0.1.0 notes](releases/v0.1.0.md) define the initial release scope. The release gate is a reviewed, reproducible version with green CI and disclosed startup-check results; the separate capacity exercise is pending. Microservices, brokers, additional markets/order types, external monitoring storage and a diagnostics dashboard remain deferred until a measured or accepted product requirement justifies them. A hosted demo remains outside the chosen delivery.
 
 ## Review the project locally
 
-Use the [README quick start](../README.md#run-locally) for the development application. It starts the API in watch mode, Vite, and persistent local PostgreSQL. The self-host package below is a separate deployment artifact; it does not replace the development workflow or reset its database.
+Use Node.js 24 and pnpm 10.22.0. The shortest reviewer path opens the actual development application with isolated trader and administrator sessions:
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm exec playwright install chromium
-pnpm check
-pnpm demo
+pnpm portfolio:serve
 ```
 
-The test and demo wrappers create isolated temporary PostgreSQL clusters. CI uses its separate PostgreSQL service. Browser tests run actual development pages and APIs in independent schemas, including lost responses and real preview expiry. Process-loss tests send `SIGKILL` at known transaction boundaries.
+On Linux, install browser system dependencies with `pnpm exec playwright install --with-deps chromium` when needed. PostgreSQL initializes as a normal, non-root user. The launcher starts temporary PostgreSQL, an isolated schema, the API and Vite on loopback. It seeds two synthetic participants through ordinary APIs, then transfers genuinely issued session cookies in memory to separate Chromium contexts. It writes no browser authentication files in the normal launch. No Docker, account setup or manual cookie import is needed. `TEST_DATABASE_URL` is refused before connecting; unset it for this disposable demonstration.
+
+The trader opens on the seller's partially filled 0.4 BTC-SIM order at 50,000 USD-SIM: 0.1 has executed and 0.3 remains reserved. Inspect the order, cancel the remainder, and check **History**. The administrator opens the control room with the simulator stopped. Pause trading to inspect controls and finite simulator inventory; resume for ongoing synthetic trading. Closing either demo window or pressing Ctrl+C closes both windows, stops the owned services and removes its schema and temporary database. The persistent development database is untouched.
+
+To automate that same reviewer path without visible windows:
+
+```sh
+pnpm portfolio:serve --headless --smoke
+```
+
+The smoke run verifies both authenticated roles, seeded fill and cancellation, released balances, retained execution history, and administrator pause/start/inventory/stop controls, then exits and cleans up. `--headless` and `--smoke` must appear together. It does not measure load or replace packaged HTTPS acceptance.
+
+For a persistent installation, follow [development setup](DEVELOPMENT.md#prerequisites-and-setup). `pnpm admin:setup` and `pnpm dev` retain development PostgreSQL between runs. The self-host package below is a separate deployment artifact.
+
+Run `pnpm check` for type checking, formatting, unit/integration/browser tests and the web build; `pnpm demo` prints the controlled accounting example without opening the UI. These wrappers create isolated temporary PostgreSQL clusters; CI uses its separate PostgreSQL service. Browser tests run actual development pages and APIs in independent schemas, including lost responses and real preview expiry. Process-loss tests send `SIGKILL` at known transaction boundaries.
 
 The [operator runbook](OPERATIONS.md) explains how to correlate a browser's `X-Request-Id` with committed command outcomes and inspect the administrator-only diagnostic snapshot. This demonstrates maintainability without requiring a hosted metrics service. Diagnostics verification is separate from the previously recorded workload, restore and Compose acceptance results below; the new instrumentation does not establish additional hosting capacity.
 
@@ -66,13 +81,13 @@ The [silent trader walkthrough](media/trader-walkthrough.webm) is a continuous 1
 
 The README's [trader image](screenshots/trader-demo.png) and [administrator image](screenshots/admin-simulator.png) show the same isolated demonstration after enabling the two-account simulator through the administrator UI. Its scheduler accumulated executions across real UTC minutes; empty minutes remain empty. The administrator view shows the actual controls, inventory and finite-funding previews. The earlier exact-accounting/archive screenshots above remain separate examples.
 
-To reproduce the demonstration without touching the persistent development installation:
+The default reviewer launcher above is also the easiest way to inspect the current interface. For deliberate screenshots or a recording tool that needs storage-state files, opt into capture mode:
 
 ```sh
-pnpm portfolio:serve
+pnpm portfolio:serve --no-open
 ```
 
-This starts temporary PostgreSQL, an isolated schema, the API and Vite in development mode on a printed loopback origin. It seeds two synthetic participants and the exact partial-fill example. The printed `output/playwright/portfolio-private-*/trader.json` and `admin.json` paths are private Playwright storage-state capabilities: load each into its own isolated browser context, then visit `/trade` or `/admin`. Never publish those files, a trace, or a credential handoff. Use a 1440-pixel desktop viewport, capture only application content after authentication, and start the simulator only after completing the arithmetic/cancellation example. Allow several real minutes for a representative chart.
+This opens no browser. The printed `output/playwright/portfolio-private-*/trader.json` and `admin.json` paths are private Playwright storage-state capabilities: load each into its own isolated browser context on the printed origin, then visit `/trade` or `/admin`. Never publish those files, a trace, or a credential handoff. This explicit mode cannot combine with `--headless` or `--smoke`. Use a 1440-pixel desktop viewport, capture only application content after authentication, and start the simulator only after completing the arithmetic/cancellation example. Allow several real minutes for a representative chart.
 
 Stop with Ctrl+C. The runner closes its development servers/simulator, removes its generated schema and private browser state, and stops its owned temporary database. It refuses `TEST_DATABASE_URL`; unset that variable before starting this fully disposable demonstration. Reviewed public images and video live under `docs/`; intermediate captures remain ignored under `output/playwright/`. The [case study](CASE_STUDY.md) links the visible flows to source, failure tests, tradeoffs and measured limits.
 
@@ -164,6 +179,22 @@ pnpm selfhost:acceptance:cleanup
 This fallback reads validated ownership records only beneath `.local/self-host-acceptance/`; each recorded run has a 90-second cleanup budget. CI runs it with `if: always()` after the acceptance step. An uncatchable process/runner loss can still require this command on a persistent host. Cleanup success is independently required for a passing acceptance result.
 
 Transport-debug and TLS-key-log environment settings are refused before credentials or browser traffic are created. The harness atomically writes `.local/operations/self-host-acceptance-result.json` after cleanup. Its fixed allowlist contains source commit/dirty state, image IDs/revision labels, check results, failure stage, cleanup results, and the disclosed TLS/test scope. It contains no generated origin/ports, credentials, cookies, invitation links, actor IDs, local paths, terminal transcript, screenshots, traces, or raw errors. CI uploads only that file as `self-host-acceptance-report`, with seven-day retention; private run files are never uploaded. A process/runner terminated before report creation cannot supply a report and must not be treated as a passing result.
+
+### Bounded startup checks
+
+After building the source-labeled API/web images above, run:
+
+```sh
+pnpm selfhost:startup-checks
+```
+
+The default batch runs five independent fresh Compose installations and the full HTTPS journey, rather than retrying a failed login in one installation. Each run must pass all 19 setup/journey checks and all four cleanup confirmations. Source, image revision labels and immutable API/web image IDs must agree throughout the batch. The first failed run stops the batch; later successes cannot hide it. The existing eight-minute per-journey deadline remains, with a shared ten-minute work deadline across the batch. Expiry or interruption aborts the active journey and enters separately bounded cleanup, which can require up to a further 90 seconds.
+
+`pnpm selfhost:startup-checks [api-image] [web-image] --runs=N` selects explicit images or a smaller local probe of one to five runs. The report discloses the requested count: a one-run probe is not five-run release evidence. Use the default five-run command for release verification. Run from a clean checkout for published-source evidence.
+
+The allowlisted aggregate is `.local/operations/self-host-startup-checks-result.json`; the standalone acceptance report is preserved. It records the requested/completed batch and each run's sanitized result, source/image identity, check and cleanup outcomes, and fixed failure diagnostics. It excludes generated origins, credentials, actor identifiers, local paths, transcripts, traces, screenshots and raw errors. CI runs the default batch after standalone acceptance and uploads only this file as `self-host-startup-checks-report` with seven-day retention. Review the report before deliberately retaining a public copy; never publish private run directories. Use `pnpm selfhost:acceptance:cleanup` for any recorded leftovers after an uncatchable process loss.
+
+Earlier CI initial-login failures remain an unresolved intermittent issue. The bootstrap observer distinguishes script, runtime and session-request outcomes without changing the 12-second waits or retrying requests. A completed five-run batch establishes those five executions only; it neither explains the previous failure nor establishes a failure rate, sustained capacity or universal startup guarantee.
 
 ## Operational evidence
 

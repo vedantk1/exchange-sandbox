@@ -4,7 +4,10 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DemoMarket } from '../../apps/server/src/demo-market/service.js';
-import { createApiFixture } from '../../tests/helpers/api.js';
+import { createApiFixture, type ApiFixture } from '../../tests/helpers/api.js';
+import { demoCookies, openDemoBrowser, type DemoBrowser } from './browser.js';
+import { PortfolioError, portfolioOptions } from './options.js';
+import { smokeDemo } from './smoke.js';
 
 if (process.env.PORTFOLIO_OWNED_DATABASE !== '1')
   throw new Error('Start the isolated demonstration with pnpm portfolio:serve.');
@@ -35,10 +38,9 @@ async function stopWeb(child: ChildProcess) {
   }
 }
 
-const port = await availablePort();
-const origin = `http://127.0.0.1:${port}`;
-const fixture = await createApiFixture({ origin });
-const simulator = new DemoMarket(fixture.exchange);
+let fixture: ApiFixture | undefined;
+let simulator: DemoMarket | undefined;
+let browser: DemoBrowser | undefined;
 let web: ChildProcess | undefined;
 let webFailed = false;
 let privateDirectory: string | undefined;
@@ -47,6 +49,13 @@ const interrupt = () => interrupted.abort();
 process.on('SIGINT', interrupt);
 process.on('SIGTERM', interrupt);
 try {
+  const options = portfolioOptions(process.argv.slice(2));
+  const port = await availablePort();
+  const origin = `http://127.0.0.1:${port}`;
+  interrupted.signal.throwIfAborted();
+  fixture = await createApiFixture({ origin });
+  simulator = new DemoMarket(fixture.exchange);
+  interrupted.signal.throwIfAborted();
   const seller = await fixture.trader('demo_seller');
   const buyer = await fixture.trader('demo_buyer');
   await fixture.marketState('resume');
@@ -63,30 +72,19 @@ try {
     });
     if (result.json().status !== 'ACCEPTED') throw new Error('Demonstration setup failed.');
   }
-  await mkdir('output/playwright', { recursive: true });
-  privateDirectory = await mkdtemp('output/playwright/portfolio-private-');
-  // Browser state is a private capability, not a showcase artifact. Cleanup owns this directory only.
-  for (const [name, browser] of [
-    ['trader', seller.browser],
-    ['admin', fixture.admin],
-  ] as const) {
-    const cookies = browser.cookieHeader.split('; ').map((pair) => {
-      const boundary = pair.indexOf('=');
-      const name = pair.slice(0, boundary);
-      return {
-        name,
-        value: pair.slice(boundary + 1),
-        domain: '127.0.0.1',
-        path: '/',
-        expires: -1,
-        httpOnly: name === 'sandbox_session',
-        secure: false,
-        sameSite: 'Strict',
-      };
-    });
-    await writeFile(`${privateDirectory}/${name}.json`, JSON.stringify({ cookies, origins: [] }), {
-      mode: 0o600,
-    });
+  if (options.noOpen) {
+    await mkdir('output/playwright', { recursive: true });
+    privateDirectory = await mkdtemp('output/playwright/portfolio-private-');
+    // Capture-only capabilities are explicitly requested and never published.
+    for (const [name, client] of [
+      ['trader', seller.browser],
+      ['admin', fixture.admin],
+    ] as const)
+      await writeFile(
+        `${privateDirectory}/${name}.json`,
+        JSON.stringify({ cookies: demoCookies(client.cookieHeader, origin), origins: [] }),
+        { mode: 0o600 },
+      );
   }
   const apiOrigin = await fixture.listen();
   web = spawn(process.execPath, ['node_modules/vite/bin/vite.js'], {
@@ -123,23 +121,54 @@ try {
   simulator.start();
   console.log(`Isolated development demonstration: ${origin}`);
   console.log(
-    `Private browser state: ${privateDirectory}/trader.json and ${privateDirectory}/admin.json`,
-  );
-  console.log(
     'Setup: 0.4 sell / 0.1 buy at 50,000; simulator stopped. No trading timestamps were changed.',
   );
-  console.log(
-    'Load the private state in an isolated browser profile. Stop with Ctrl+C to remove the fixture and private state.',
-  );
+  if (options.noOpen) {
+    console.log(
+      `Capture-only private browser state: ${privateDirectory}/trader.json and ${privateDirectory}/admin.json`,
+    );
+    console.log('Stop with Ctrl+C to remove the fixture and private capture state.');
+  } else {
+    browser = await openDemoBrowser({
+      origin,
+      traderCookie: seller.browser.cookieHeader,
+      adminCookie: fixture.admin.cookieHeader,
+      headless: options.headless,
+      signal: interrupted.signal,
+      onClose: interrupt,
+    });
+    if (options.smoke) {
+      await smokeDemo(browser);
+      console.log(
+        'Reviewer demonstration passed: trader, cancellation, history and admin controls.',
+      );
+      interrupt();
+    } else {
+      console.log(
+        'Trader and administrator are signed in separately. Close either demo window or press Ctrl+C to remove all demo resources.',
+      );
+    }
+  }
   if (!interrupted.signal.aborted)
     await new Promise<void>((resolve) =>
       interrupted.signal.addEventListener('abort', () => resolve(), { once: true }),
     );
-} catch {
+} catch (error) {
   if (!interrupted.signal.aborted) {
-    console.error(
-      'The isolated demonstration could not start. Cleanup will remove its private state.',
-    );
+    if (error instanceof PortfolioError) {
+      console.error(`The isolated demonstration failed (${error.code}).`);
+      if (error.code === 'PORTFOLIO_BROWSER_NOT_INSTALLED')
+        console.error('Install the demo browser with: pnpm exec playwright install chromium');
+      else if (error.code === 'PORTFOLIO_BROWSER_LAUNCH_FAILED')
+        console.error(
+          'Install Chromium with pnpm exec playwright install chromium and use a desktop display. For automated verification, use: pnpm portfolio:serve --headless --smoke',
+        );
+      else if (error.code === 'PORTFOLIO_ARGUMENTS_INVALID')
+        console.error('Usage: pnpm portfolio:serve [--headless --smoke | --no-open]');
+    } else
+      console.error(
+        'The isolated demonstration could not complete. Its owned resources will close.',
+      );
     process.exitCode = 1;
   }
 } finally {
@@ -149,26 +178,30 @@ try {
   }
   try {
     try {
-      if (web) await stopWeb(web);
+      await browser?.close();
     } finally {
       try {
-        await simulator.close();
+        if (web) await stopWeb(web);
       } finally {
         try {
-          try {
-            await fixture.dispose();
-          } catch (error) {
-            // A terminal interrupt also reaches the owned PostgreSQL process.
-            // Its wrapper removes that whole cluster after this child exits.
-            const code = (error as { code?: string }).code;
-            if (
-              !interrupted.signal.aborted ||
-              !['57P01', '57P03', 'ECONNREFUSED'].includes(code ?? '')
-            )
-              throw error;
-          }
+          await simulator?.close();
         } finally {
-          if (privateDirectory) await rm(privateDirectory, { recursive: true, force: true });
+          try {
+            try {
+              await fixture?.dispose();
+            } catch (error) {
+              // A terminal interrupt also reaches the owned PostgreSQL process.
+              // Its wrapper removes that whole cluster after this child exits.
+              const code = (error as { code?: string }).code;
+              if (
+                !interrupted.signal.aborted ||
+                !['57P01', '57P03', 'ECONNREFUSED'].includes(code ?? '')
+              )
+                throw error;
+            }
+          } finally {
+            if (privateDirectory) await rm(privateDirectory, { recursive: true, force: true });
+          }
         }
       }
     }

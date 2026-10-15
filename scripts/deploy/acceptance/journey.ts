@@ -8,6 +8,7 @@ import type {
 } from '../../../packages/contracts/src/index.js';
 import { TrustedHttps } from './https.js';
 import { AcceptanceJourneyError, openLoginPage } from './login.js';
+import { closeJourneyBrowser } from './browser-cleanup.js';
 export { AcceptanceJourneyError, openLoginPage } from './login.js';
 import type { DiagnosticsSnapshot } from '../../../apps/server/src/diagnostics.js';
 
@@ -370,6 +371,7 @@ export async function runJourney(options: JourneyOptions): Promise<Record<string
     }),
   );
   let events: Awaited<ReturnType<TrustedHttps['events']>> | undefined;
+  let firstFailure: AcceptanceJourneyError | undefined;
   const abort = () => {
     events?.close();
     void browser.close().catch(() => undefined);
@@ -758,11 +760,14 @@ export async function runJourney(options: JourneyOptions): Promise<Record<string
       operationalDiagnostics: true,
     };
   } catch (error) {
-    if (error instanceof AcceptanceJourneyError) throw error;
-    throw new AcceptanceJourneyError('ACCEPTANCE_BROWSER_FAILED');
+    firstFailure =
+      error instanceof AcceptanceJourneyError
+        ? error
+        : new AcceptanceJourneyError('ACCEPTANCE_BROWSER_FAILED');
+    throw firstFailure;
   } finally {
     options.signal?.removeEventListener('abort', abort);
     events?.close();
-    await stage('ACCEPTANCE_BROWSER_CLEANUP_FAILED', () => browser.close());
+    await closeJourneyBrowser(() => browser.close(), firstFailure);
   }
 }

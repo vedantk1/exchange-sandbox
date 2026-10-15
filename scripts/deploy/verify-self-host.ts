@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { createHash, randomBytes, randomUUID, X509Certificate } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { request } from 'node:https';
@@ -7,12 +6,12 @@ import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { TLSSocket } from 'node:tls';
-import { promisify } from 'node:util';
 import { MIGRATIONS } from '../../packages/database/src/migration-registry.js';
 import { prepareSelfHost } from './acceptance/configuration.js';
 import { runOperatorSetup, OperatorSetupError } from './acceptance/operator.js';
 import { runJourney, AcceptanceJourneyError } from './acceptance/journey.js';
-import { formatLoginCheckpoint } from './acceptance/login.js';
+import { formatLoginCheckpoint, type LoginBootstrapCheckpoint } from './acceptance/login.js';
+import { acceptanceSource } from './acceptance/preflight.js';
 import {
   acceptanceEnvironment,
   cleanupRecordedRuns,
@@ -31,7 +30,6 @@ import {
   type ImageEvidence,
 } from './acceptance/report.js';
 
-const execute = promisify(execFile);
 const postgresImage =
   'postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636';
 const loader = './apps/server/node_modules/tsx/dist/loader.mjs';
@@ -156,22 +154,30 @@ const runtimeProbe = `
   } finally { await connection.end(); }
 `;
 
-async function main(): Promise<void> {
-  if (process.argv[2] === '--cleanup') {
-    assert.equal(process.argv.length, 3);
-    const cleaned = await cleanupRecordedRuns();
-    console.log(
-      cleaned
-        ? 'Self-host acceptance cleanup verified.'
-        : 'Self-host acceptance cleanup could not be confirmed.',
-    );
-    process.exitCode = cleaned ? 0 : 1;
-    return;
-  }
-  const apiImage = process.argv[2] ?? 'spot-exchange-simulator-api:local';
-  const webImage = process.argv[3] ?? 'spot-exchange-simulator-web:local';
+export interface SelfHostAcceptanceResult {
+  report: ReturnType<typeof acceptanceReport>;
+  failure?: {
+    code: string;
+    checkpoint?: LoginBootstrapCheckpoint;
+    browserCleanupFailed?: boolean;
+  };
+}
+
+/** Each invocation creates and cleans a fresh installation, and returns only its own result. */
+export async function runSelfHostAcceptance(
+  options: {
+    apiImage?: string;
+    webImage?: string;
+    signal?: AbortSignal;
+    writeReport?: boolean;
+  } = {},
+): Promise<SelfHostAcceptanceResult> {
+  const apiImage = options.apiImage ?? 'spot-exchange-simulator-api:local';
+  const webImage = options.webImage ?? 'spot-exchange-simulator-web:local';
   const controller = new AbortController();
-  const signal = controller.signal;
+  const signal = options.signal
+    ? AbortSignal.any([controller.signal, options.signal])
+    : controller.signal;
   const canceled = () => controller.abort();
   const deadline = setTimeout(canceled, 8 * 60_000);
   process.once('SIGINT', canceled);
@@ -187,19 +193,17 @@ async function main(): Promise<void> {
   const source = { commit: '', dirty: true };
   const images: Partial<Record<'api' | 'web' | 'postgres', ImageEvidence>> = {};
   const checks: Record<string, boolean> = {};
+  let failure: SelfHostAcceptanceResult['failure'];
+  let report: SelfHostAcceptanceResult['report'];
   try {
+    signal.throwIfAborted();
     // Debugging transports can emit credentials, request bodies or TLS keys.
     // Reject them before creating any credentials or launching browser traffic.
     for (const name of ['DEBUG', 'PWDEBUG', 'NODE_DEBUG', 'SSLKEYLOGFILE', 'TLSKEYLOGFILE'])
       assert.equal(Boolean(process.env[name]), false);
-    assert.ok(process.argv.length <= 4);
     for (const image of [apiImage, webImage])
       assert.match(image, /^[a-zA-Z0-9][a-zA-Z0-9_./:@-]{0,250}$/);
-    source.commit = (await execute('git', ['rev-parse', 'HEAD'])).stdout.trim();
-    source.dirty =
-      (
-        await execute('git', ['status', '--porcelain', '--untracked-files=normal'])
-      ).stdout.trim() !== '';
+    Object.assign(source, await acceptanceSource(signal));
     assert.match(source.commit, /^[0-9a-f]{40}$/);
     if (process.env.CI) assert.equal(source.dirty, false);
     images.api = await imageEvidence(apiImage, signal);
@@ -209,8 +213,12 @@ async function main(): Promise<void> {
     assert.equal(images.api.revision, source.commit);
     assert.equal(images.web.revision, source.commit);
     const project = `sandbox-acceptance-${randomUUID().replaceAll('-', '')}`;
+    const preflightDocker = (arguments_: string[], timeout = 30_000) => {
+      signal.throwIfAborted();
+      return docker(arguments_, timeout, signal);
+    };
     for (const kind of ['container', 'volume', 'network'] as const)
-      assert.equal((await listResources(docker, kind, project)).length, 0);
+      assert.equal((await listResources(preflightDocker, kind, project)).length, 0);
     const httpsPort = await availablePort();
     let httpPort = await availablePort();
     while (httpPort === httpsPort) httpPort = await availablePort();
@@ -367,6 +375,15 @@ async function main(): Promise<void> {
     signal.throwIfAborted();
     completed = true;
   } catch (error) {
+    failure = {
+      code:
+        error instanceof OperatorSetupError || error instanceof AcceptanceJourneyError
+          ? error.code
+          : 'ACCEPTANCE_FAILED',
+      ...(error instanceof AcceptanceJourneyError && error.browserCleanupFailed
+        ? { browserCleanupFailed: true }
+        : {}),
+    };
     // Only fixed codes and numeric progress are safe to print, never transcripts or causes.
     const code =
       error instanceof OperatorSetupError
@@ -377,14 +394,17 @@ async function main(): Promise<void> {
     console.error(`Self-host acceptance failed at ${stage}${code}. See the sanitized report.`);
     if (error instanceof AcceptanceJourneyError) {
       const checkpoint = formatLoginCheckpoint(error.checkpoint);
-      if (checkpoint) console.error(`Login bootstrap checkpoint: ${checkpoint}`);
+      if (checkpoint) {
+        failure.checkpoint = JSON.parse(checkpoint) as LoginBootstrapCheckpoint;
+        console.error(`Login bootstrap checkpoint: ${checkpoint}`);
+      }
     }
   } finally {
     clearTimeout(deadline);
     const failureStage = stage;
     enterStage('cleanup');
     if (manifest) cleanup = await cleanupRun(manifest);
-    const report = acceptanceReport({
+    report = acceptanceReport({
       stage: completed
         ? Object.values(cleanup).every(Boolean)
           ? 'complete'
@@ -395,19 +415,42 @@ async function main(): Promise<void> {
       checks,
       cleanup,
     });
-    await saveReport(report);
-    process.exitCode = report.status === 'passed' ? 0 : 1;
-    console.log(
-      `Self-host acceptance ${report.status}; sanitized report: ${reportPath}. Cleanup ${Object.values(cleanup).every(Boolean) ? 'verified' : 'not confirmed'}.`,
-    );
-    process.off('SIGINT', canceled);
-    process.off('SIGTERM', canceled);
+    try {
+      if (options.writeReport !== false) await saveReport(report);
+      console.log(
+        `Self-host acceptance ${report.status}; ${options.writeReport === false ? 'result returned to startup checks' : `sanitized report: ${reportPath}`}. Cleanup ${Object.values(cleanup).every(Boolean) ? 'verified' : 'not confirmed'}.`,
+      );
+    } finally {
+      process.off('SIGINT', canceled);
+      process.off('SIGTERM', canceled);
+    }
   }
+  return failure ? { report, failure } : { report };
 }
 
-await main().catch(() => {
-  console.error(
-    'Self-host acceptance could not finish safely. Run the scoped cleanup command and inspect its sanitized report.',
-  );
-  process.exitCode = 1;
-});
+if (import.meta.main) {
+  await (async () => {
+    if (process.argv[2] === '--cleanup') {
+      assert.equal(process.argv.length, 3);
+      const cleaned = await cleanupRecordedRuns();
+      console.log(
+        cleaned
+          ? 'Self-host acceptance cleanup verified.'
+          : 'Self-host acceptance cleanup could not be confirmed.',
+      );
+      process.exitCode = cleaned ? 0 : 1;
+      return;
+    }
+    assert.ok(process.argv.length <= 4);
+    const result = await runSelfHostAcceptance({
+      ...(process.argv[2] ? { apiImage: process.argv[2] } : {}),
+      ...(process.argv[3] ? { webImage: process.argv[3] } : {}),
+    });
+    process.exitCode = result.report.status === 'passed' ? 0 : 1;
+  })().catch(() => {
+    console.error(
+      'Self-host acceptance could not finish safely. Run the scoped cleanup command and inspect its sanitized report.',
+    );
+    process.exitCode = 1;
+  });
+}

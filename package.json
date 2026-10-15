@@ -28,6 +28,7 @@
     "selfhost:prepare": "tsx scripts/deploy/prepare.ts",
     "selfhost:acceptance": "tsx scripts/deploy/verify-self-host.ts",
     "selfhost:acceptance:cleanup": "tsx scripts/deploy/verify-self-host.ts --cleanup",
+    "selfhost:startup-checks": "tsx scripts/deploy/startup-checks.ts",
     "ops:benchmark": "tsx scripts/with-postgres.ts benchmark",
     "ops:benchmark:session": "tsx scripts/with-postgres.ts large-session-benchmark",
     "ops:benchmark:charts": "tsx scripts/with-postgres.ts benchmark-candles",

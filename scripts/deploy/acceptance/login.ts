@@ -38,6 +38,8 @@ export interface LoginBootstrapCheckpoint {
 
 /** No raw causes, URLs, browser messages, DOM or response bodies enter acceptance errors. */
 export class AcceptanceJourneyError extends Error {
+  browserCleanupFailed = false;
+
   constructor(
     readonly code: string,
     readonly checkpoint?: LoginBootstrapCheckpoint,

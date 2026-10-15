@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import pg from 'pg';
+import { portfolioOptions } from './portfolio/options.js';
 
 const mode = process.argv[2];
 if (
@@ -177,7 +178,7 @@ async function runChild(connectionString: string): Promise<number> {
               : mode === 'demo'
                 ? ['--import', 'tsx', 'apps/server/src/demo.ts']
                 : mode === 'portfolio'
-                  ? ['--import', 'tsx', 'scripts/portfolio/serve.ts']
+                  ? ['--import', 'tsx', 'scripts/portfolio/serve.ts', ...process.argv.slice(3)]
                   : mode === 'dev'
                     ? ['--import', 'tsx', 'scripts/dev.ts']
                     : ['--import', 'tsx', 'apps/server/src/operator-cli.ts', mode!];
@@ -208,6 +209,7 @@ process.on('SIGINT', forwardInterrupt);
 process.on('SIGTERM', forwardTerminate);
 
 try {
+  if (mode === 'portfolio') portfolioOptions(process.argv.slice(3));
   if (mode === 'portfolio' && externalUrl)
     throw new LocalDatabaseError('PORTFOLIO_REQUIRES_TEMP_DATABASE');
   let connectionString = externalUrl;
@@ -297,6 +299,8 @@ try {
   console.error(
     `PostgreSQL ${mode} runner failed while ${stage} (${code}). Check database availability and native dependency support.`,
   );
+  if (code === 'PORTFOLIO_ARGUMENTS_INVALID')
+    console.error('Usage: pnpm portfolio:serve [--headless --smoke | --no-open]');
   if (persistent && code.startsWith('LOCAL_DATABASE_'))
     console.error(
       'Local development files were preserved. Inspect .local/development-postgres and restore its matching metadata; do not reset a running or needed cluster.',
