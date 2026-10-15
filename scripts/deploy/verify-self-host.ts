@@ -12,6 +12,7 @@ import { MIGRATIONS } from '../../packages/database/src/migration-registry.js';
 import { prepareSelfHost } from './acceptance/configuration.js';
 import { runOperatorSetup, OperatorSetupError } from './acceptance/operator.js';
 import { runJourney, AcceptanceJourneyError } from './acceptance/journey.js';
+import { formatLoginCheckpoint } from './acceptance/login.js';
 import {
   acceptanceEnvironment,
   cleanupRecordedRuns,
@@ -374,6 +375,10 @@ async function main(): Promise<void> {
           ? ` (${error.code})`
           : '';
     console.error(`Self-host acceptance failed at ${stage}${code}. See the sanitized report.`);
+    if (error instanceof AcceptanceJourneyError) {
+      const checkpoint = formatLoginCheckpoint(error.checkpoint);
+      if (checkpoint) console.error(`Login bootstrap checkpoint: ${checkpoint}`);
+    }
   } finally {
     clearTimeout(deadline);
     const failureStage = stage;
