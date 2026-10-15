@@ -1,0 +1,57 @@
+{
+  "formatVersion": 1,
+  "generatedAt": "2026-10-15T09:48:33.229Z",
+  "kind": "fresh-compose-https-acceptance",
+  "status": "passed",
+  "stage": "complete",
+  "source": {
+    "commit": "6a413373fb5b12f6397fdfb55604c35421ebc278",
+    "dirty": false
+  },
+  "images": {
+    "api": {
+      "id": "sha256:90a963a51b429e64ddf59cce6f1281ef61a07a7bdad4f607532ebe23a322faa7",
+      "revision": "6a413373fb5b12f6397fdfb55604c35421ebc278"
+    },
+    "web": {
+      "id": "sha256:86caf322b505e4f175f86dffdc32a8e4e08047874fcf745ba0d04bc8dcdc00c8",
+      "revision": "6a413373fb5b12f6397fdfb55604c35421ebc278"
+    },
+    "postgres": {
+      "id": "sha256:4b87d5343a0e499eea33b6c19ec152a3ed4a0d1a453eadd26ff415a406821a6e",
+      "revision": null
+    }
+  },
+  "checks": {
+    "freshInstallation": true,
+    "supportedOwnerInitialization": true,
+    "interactiveAdministratorSetup": true,
+    "restrictedRuntime": true,
+    "runningImageIdentity": true,
+    "httpsIdentityVerified": true,
+    "compiledUiLogin": true,
+    "invitationRedemption": true,
+    "csrfProtection": true,
+    "secureSessionCookies": true,
+    "partialFillAndCancellation": true,
+    "liveUpdates": true,
+    "traderExportReconciliation": true,
+    "adminExportReconciliation": true,
+    "crossAccountExportDenied": true,
+    "sessionPreservedAfterRestart": true,
+    "originalReceiptReplay": true,
+    "restartAccountingPreserved": true,
+    "operationalDiagnostics": true
+  },
+  "cleanup": {
+    "containersRemoved": true,
+    "volumesRemoved": true,
+    "networksRemoved": true,
+    "privateFilesRemoved": true
+  },
+  "tls": {
+    "serverValidation": "Node HTTPS requires the generated Caddy CA and localhost hostname.",
+    "browserTrust": "An isolated Chromium exception is limited to the leaf public key after Node validation; no global TLS bypass or host trust-store changes."
+  },
+  "scope": "Generated isolated Compose installation only. API retains its normal restricted role and container resource limits. This is acceptance evidence, not a capacity benchmark or proof of real-money readiness."
+}
