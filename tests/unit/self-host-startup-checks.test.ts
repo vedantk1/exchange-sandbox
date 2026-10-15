@@ -183,6 +183,7 @@ describe('bounded fresh Compose startup observations', () => {
     'POST_NOT_REQUESTED',
     'POST_IN_FLIGHT',
     'POST_HTTP_503',
+    'POST_REQUEST_FAILED_NETWORK_CHANGED',
   ])(
     'preserves fixed submission stage code %s without admitting arbitrary strings',
     async (code) => {
@@ -192,6 +193,15 @@ describe('bounded fresh Compose startup observations', () => {
       expect(report.firstFailure?.code).toBe(failed.failure.code);
     },
   );
+
+  it('retains a bounded network-readiness failure and stops before another installation', async () => {
+    const failed = result();
+    failed.failure = { code: 'ACCEPTANCE_NETWORK_READINESS_FAILED' };
+    const run = vi.fn<Run>().mockResolvedValue(failed);
+    const report = await runStartupChecks(options, run);
+    expect(report.firstFailure?.code).toBe(failed.failure.code);
+    expect(run).toHaveBeenCalledOnce();
+  });
 
   it('does not substitute an old success when an invocation throws or cannot return its result', async () => {
     const run = vi

@@ -2,6 +2,7 @@ import { expect, type Page, type Request, type Response } from '@playwright/test
 import type { LoginSubmissionCheckpoint } from './submission.js';
 
 export const NETWORK_FAILURES = [
+  'NETWORK_CHANGED',
   'CONNECTION_RESET',
   'CONNECTION_REFUSED',
   'CONNECTION_CLOSED',
@@ -102,6 +103,8 @@ export function networkFailure(request: Request): NetworkFailure {
   const text = request.failure()?.errorText ?? '';
   if (text.startsWith('net::ERR_CERT_')) return 'CERTIFICATE';
   switch (text) {
+    case 'net::ERR_NETWORK_CHANGED':
+      return 'NETWORK_CHANGED';
     case 'net::ERR_CONNECTION_RESET':
       return 'CONNECTION_RESET';
     case 'net::ERR_CONNECTION_REFUSED':

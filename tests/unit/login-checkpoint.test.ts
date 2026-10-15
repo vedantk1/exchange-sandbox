@@ -1,7 +1,24 @@
 import { EventEmitter } from 'node:events';
-import type { Page } from '@playwright/test';
+import type { Page, Request } from '@playwright/test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatLoginCheckpoint, openLoginPage } from '../../scripts/deploy/acceptance/login.js';
+import {
+  formatLoginCheckpoint,
+  networkFailure,
+  openLoginPage,
+} from '../../scripts/deploy/acceptance/login.js';
+
+it('retains the reproduced Linux network-change category without exposing browser text', () => {
+  const request = {
+    failure: () => ({ errorText: 'net::ERR_NETWORK_CHANGED' }),
+  } as Request;
+  expect(networkFailure(request)).toBe('NETWORK_CHANGED');
+  expect(
+    JSON.parse(formatLoginCheckpoint({ sessionFailure: networkFailure(request) })!),
+  ).toMatchObject({ sessionFailure: 'NETWORK_CHANGED' });
+  expect(
+    networkFailure({ failure: () => ({ errorText: 'PRIVATE_NETWORK_SENTINEL' }) } as Request),
+  ).toBe('OTHER');
+});
 
 describe('sanitized login checkpoint output', () => {
   it('copies only fixed categories and bounded counters without diagnostic payloads', () => {

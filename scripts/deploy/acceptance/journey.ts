@@ -10,6 +10,7 @@ import { TrustedHttps } from './https.js';
 import { AcceptanceJourneyError, openLoginPage } from './login.js';
 import { closeJourneyBrowser } from './browser-cleanup.js';
 import { submitLogin } from './submission.js';
+import { waitForHostNetworkReady } from './network-readiness.js';
 export { AcceptanceJourneyError, openLoginPage } from './login.js';
 import type { DiagnosticsSnapshot } from '../../../apps/server/src/diagnostics.js';
 
@@ -358,6 +359,7 @@ function accountExport(
 
 /** Compiled React UI, authenticated HTTPS endpoints and Caddy SSE; no fixture or owner-DB access. */
 export async function runJourney(options: JourneyOptions): Promise<Record<string, boolean>> {
+  await stage('ACCEPTANCE_NETWORK_READINESS_FAILED', () => waitForHostNetworkReady(options.signal));
   const browser = await stage('ACCEPTANCE_BROWSER_FAILED', () =>
     chromium.launch({
       headless: true,
