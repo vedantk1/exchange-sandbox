@@ -13,6 +13,15 @@ import { runJourney, AcceptanceJourneyError } from './acceptance/journey.js';
 import { formatLoginCheckpoint, type LoginBootstrapCheckpoint } from './acceptance/login.js';
 import { acceptanceSource } from './acceptance/preflight.js';
 import {
+  formatLoginSubmissionCheckpoint,
+  type LoginSubmissionCheckpoint,
+} from './acceptance/submission.js';
+import {
+  formatRuntimeCheckpoint,
+  readRuntimeCheckpoint,
+  type RuntimeCheckpoint,
+} from './acceptance/runtime-checkpoint.js';
+import {
   acceptanceEnvironment,
   cleanupRecordedRuns,
   cleanupRun,
@@ -159,6 +168,8 @@ export interface SelfHostAcceptanceResult {
   failure?: {
     code: string;
     checkpoint?: LoginBootstrapCheckpoint;
+    submissionCheckpoint?: LoginSubmissionCheckpoint;
+    runtimeCheckpoint?: RuntimeCheckpoint;
     browserCleanupFailed?: boolean;
   };
 }
@@ -189,6 +200,7 @@ export async function runSelfHostAcceptance(
   };
   let completed = false;
   let manifest: RunManifest | undefined;
+  let verifiedApiId: string | undefined;
   let cleanup = emptyCleanup();
   const source = { commit: '', dirty: true };
   const images: Partial<Record<'api' | 'web' | 'postgres', ImageEvidence>> = {};
@@ -322,6 +334,9 @@ export async function runSelfHostAcceptance(
       actual.map((value: { Image: string }) => value.Image),
       [images.api.id, images.web.id, images.postgres.id],
     );
+    assert.match(apiId, /^[0-9a-f]{64}$/);
+    assert.equal(actual[0].Id, apiId);
+    verifiedApiId = apiId;
     assert.equal(actual[0].HostConfig.ReadonlyRootfs, true);
     assert.ok(actual[0].HostConfig.Memory > 0 && actual[0].HostConfig.NanoCpus > 0);
     checks.runningImageIdentity = true;
@@ -397,6 +412,22 @@ export async function runSelfHostAcceptance(
       if (checkpoint) {
         failure.checkpoint = JSON.parse(checkpoint) as LoginBootstrapCheckpoint;
         console.error(`Login bootstrap checkpoint: ${checkpoint}`);
+      }
+      const submissionCheckpoint = formatLoginSubmissionCheckpoint(error.submissionCheckpoint);
+      if (submissionCheckpoint) {
+        failure.submissionCheckpoint = JSON.parse(
+          submissionCheckpoint,
+        ) as LoginSubmissionCheckpoint;
+        console.error(`Login submission checkpoint: ${submissionCheckpoint}`);
+      }
+    }
+    if (verifiedApiId) {
+      const runtimeCheckpoint = formatRuntimeCheckpoint(
+        await readRuntimeCheckpoint(docker, verifiedApiId, signal),
+      );
+      if (runtimeCheckpoint) {
+        failure.runtimeCheckpoint = JSON.parse(runtimeCheckpoint) as RuntimeCheckpoint;
+        console.error(`API runtime checkpoint: ${runtimeCheckpoint}`);
       }
     }
   } finally {

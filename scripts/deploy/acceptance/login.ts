@@ -1,6 +1,7 @@
 import { expect, type Page, type Request, type Response } from '@playwright/test';
+import type { LoginSubmissionCheckpoint } from './submission.js';
 
-const NETWORK_FAILURES = [
+export const NETWORK_FAILURES = [
   'CONNECTION_RESET',
   'CONNECTION_REFUSED',
   'CONNECTION_CLOSED',
@@ -13,7 +14,7 @@ const NETWORK_FAILURES = [
   'CONTENT_DECODING',
   'OTHER',
 ] as const;
-type NetworkFailure = (typeof NETWORK_FAILURES)[number];
+export type NetworkFailure = (typeof NETWORK_FAILURES)[number];
 const CAPABILITIES = [
   'AVAILABLE',
   'INSECURE_CONTEXT',
@@ -43,6 +44,7 @@ export class AcceptanceJourneyError extends Error {
   constructor(
     readonly code: string,
     readonly checkpoint?: LoginBootstrapCheckpoint,
+    readonly submissionCheckpoint?: LoginSubmissionCheckpoint,
   ) {
     super(code);
   }
@@ -96,7 +98,7 @@ export function formatLoginCheckpoint(value: unknown): string | undefined {
   }
 }
 
-function networkFailure(request: Request): NetworkFailure {
+export function networkFailure(request: Request): NetworkFailure {
   const text = request.failure()?.errorText ?? '';
   if (text.startsWith('net::ERR_CERT_')) return 'CERTIFICATE';
   switch (text) {

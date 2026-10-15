@@ -9,6 +9,7 @@ import type {
 import { TrustedHttps } from './https.js';
 import { AcceptanceJourneyError, openLoginPage } from './login.js';
 import { closeJourneyBrowser } from './browser-cleanup.js';
+import { submitLogin } from './submission.js';
 export { AcceptanceJourneyError, openLoginPage } from './login.js';
 import type { DiagnosticsSnapshot } from '../../../apps/server/src/diagnostics.js';
 
@@ -74,19 +75,13 @@ async function login(page: Page, options: JourneyOptions, handle: string): Promi
   }[handle];
   check(role);
   await openLoginPage(page, options.origin, role as 'ADMIN' | 'SELLER' | 'BUYER');
-  await stage(`ACCEPTANCE_LOGIN_${role}_SUBMISSION_FAILED`, async () => {
-    await page.getByLabel(/^Handle/).fill(handle);
-    await page.getByLabel('Password', { exact: true }).fill(options.password);
-    const [completed] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.url() === `${options.origin}/api/auth/login` &&
-          response.request().method() === 'POST',
-      ),
-      page.getByRole('button', { name: 'Sign in', exact: true }).click(),
-    ]);
-    check(completed.status() === 200);
-  });
+  await submitLogin(
+    page,
+    options.origin,
+    role as 'ADMIN' | 'SELLER' | 'BUYER',
+    handle,
+    options.password,
+  );
   await stage(`ACCEPTANCE_LOGIN_${role}_SYNC_FAILED`, async () => {
     await expect(page.getByText('Live · synced', { exact: true })).toBeVisible({ timeout: 15_000 });
   });

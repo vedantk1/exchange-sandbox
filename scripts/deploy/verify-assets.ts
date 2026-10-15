@@ -54,18 +54,23 @@ try {
   assert.equal(index.status, 200, 'SPA deep links must return the entry document.');
   assert.match(index.type, /text\/html/);
   assert.equal(index.cache, 'no-cache');
+  assert.equal(index.advertisesHttp3, false, 'The TCP-only package must not advertise HTTP/3.');
   const assetPath = index.body.match(/src="(\/assets\/[^\"]+\.js)"/)?.[1];
   assert.ok(assetPath, 'The entry document did not reference a built JavaScript asset.');
   const asset = await readHttpsAsset(assetPath, port, ca);
   assert.equal(asset.status, 200);
   assert.match(asset.type, /(?:application|text)\/javascript/);
   assert.equal(asset.cache, 'public, max-age=31536000, immutable');
+  assert.equal(asset.advertisesHttp3, false, 'Built assets must not advertise HTTP/3.');
   assert.doesNotMatch(asset.body, /<!doctype html>/i);
   const missing = await readHttpsAsset('/assets/removed-deployment-chunk.js', port, ca);
   assert.equal(missing.status, 404, 'Missing chunks must never fall back to the entry document.');
   assert.doesNotMatch(missing.body, /<!doctype html>/i);
   assert.equal(missing.cache, 'no-store');
-  console.log('Verified HTTPS deep links, built asset caching, and missing-chunk 404 recovery.');
+  assert.equal(missing.advertisesHttp3, false, 'Missing assets must not advertise HTTP/3.');
+  console.log(
+    'Verified TCP-only HTTPS protocol advertisement, deep links, built asset caching, and missing-chunk 404 recovery.',
+  );
 } finally {
   if (container) await docker(['stop', '--time', '1', container]);
 }

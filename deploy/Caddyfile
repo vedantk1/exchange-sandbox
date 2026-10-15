@@ -1,5 +1,9 @@
 {
   auto_https disable_redirects
+  # Compose publishes TCP only; do not advertise an unreachable HTTP/3 endpoint.
+  servers {
+    protocols h1 h2
+  }
 }
 
 http://{$PUBLIC_HOST} {

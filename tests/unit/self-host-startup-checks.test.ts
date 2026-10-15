@@ -136,6 +136,63 @@ describe('bounded fresh Compose startup observations', () => {
     expect(report.runs[0]?.acceptance?.cleanup.volumesRemoved).toBe(false);
   });
 
+  it('retains exact submission and runtime categories while excluding private fields', async () => {
+    const failed = result();
+    failed.failure = {
+      code: 'ACCEPTANCE_LOGIN_ADMIN_POST_REQUEST_FAILED_HTTP2_PROTOCOL_FAILED',
+      submissionCheckpoint: {
+        stage: 'POST_RESPONSE',
+        request: 'FAILED',
+        httpStatus: null,
+        requestFailure: 'HTTP2_PROTOCOL',
+        inputStateAvailable: true,
+        documentReady: true,
+        formPresent: true,
+        handleValid: true,
+        passwordValid: true,
+        formValid: true,
+        submitEnabled: true,
+      },
+      runtimeCheckpoint: { available: true, running: false, oomKilled: true, restartCount: 1 },
+    };
+    Object.assign(failed.failure.submissionCheckpoint!, {
+      password: 'PRIVATE_SENTINEL',
+      validationMessage: 'PRIVATE_SENTINEL',
+    });
+    Object.assign(failed.failure.runtimeCheckpoint!, { containerId: 'PRIVATE_SENTINEL' });
+    const run = vi.fn<Run>().mockResolvedValue(failed);
+    const report = await runStartupChecks(options, run);
+    expect(report.firstFailure).toMatchObject({
+      code: 'ACCEPTANCE_LOGIN_ADMIN_POST_REQUEST_FAILED_HTTP2_PROTOCOL_FAILED',
+      submissionCheckpoint: {
+        request: 'FAILED',
+        requestFailure: 'HTTP2_PROTOCOL',
+        formValid: true,
+      },
+      runtimeCheckpoint: { available: true, running: false, oomKilled: true, restartCount: 1 },
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(report)).not.toContain('PRIVATE_SENTINEL');
+  });
+
+  it.each([
+    'FILL_HANDLE',
+    'FILL_PASSWORD',
+    'CLICK',
+    'POST_RESPONSE',
+    'POST_NOT_REQUESTED',
+    'POST_IN_FLIGHT',
+    'POST_HTTP_503',
+  ])(
+    'preserves fixed submission stage code %s without admitting arbitrary strings',
+    async (code) => {
+      const failed = result();
+      failed.failure = { code: `ACCEPTANCE_LOGIN_ADMIN_${code}_FAILED` };
+      const report = await runStartupChecks(options, vi.fn<Run>().mockResolvedValue(failed));
+      expect(report.firstFailure?.code).toBe(failed.failure.code);
+    },
+  );
+
   it('does not substitute an old success when an invocation throws or cannot return its result', async () => {
     const run = vi
       .fn<Run>()

@@ -58,11 +58,19 @@ function failure(code: string, message = 'Transient connection failure'): Action
   return (outgoing) => outgoing.emit('error', Object.assign(new Error(message), { code }));
 }
 
-function http(status = 200, body = '<html>compiled app</html>'): Action {
+function http(
+  status = 200,
+  body = '<html>compiled app</html>',
+  altSvc?: string | string[],
+): Action {
   return (outgoing, response) => {
     const incoming = Object.assign(new EventEmitter(), {
       statusCode: status,
-      headers: { 'content-type': 'text/html', 'cache-control': 'no-cache' },
+      headers: {
+        'content-type': 'text/html',
+        'cache-control': 'no-cache',
+        ...(altSvc === undefined ? {} : { 'alt-svc': altSvc }),
+      },
       setEncoding: () => incoming,
     });
     response(incoming as unknown as IncomingMessage);
@@ -89,6 +97,7 @@ describe('trusted HTTPS asset readiness', () => {
       status: 200,
       type: 'text/html',
       cache: 'no-cache',
+      advertisesHttp3: false,
       body: '<html>compiled app</html>',
     });
     expect(request).toHaveBeenCalledTimes(3);
@@ -106,6 +115,26 @@ describe('trusted HTTPS asset readiness', () => {
       expect(options).not.toHaveProperty('checkServerIdentity');
     }
   });
+
+  it.each([
+    ['h3=":443"; ma=2592000', true],
+    ['h2=":443", h3=":9443"; ma=3600', true],
+    [['h2=":443"', 'h3-29=":9443"'], true],
+    ['h2=":443"; ma=3600', false],
+    ['clear', false],
+    ['example="h3=:443"', false],
+  ])(
+    'normalizes HTTP/3 advertisement without retaining endpoint values (%j)',
+    async (header, expected) => {
+      transport([http(200, 'public asset', header)]);
+      const response = await readHttpsAsset('/assets/app.js', 9443, 'generated-ca');
+      expect(response.advertisesHttp3).toBe(expected);
+      expect(response).not.toHaveProperty('headers');
+      expect(JSON.stringify(response)).not.toContain('9443');
+      expect(JSON.stringify(response)).not.toContain('2592000');
+      expect(request).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it.each([
     ['ERR_TLS_CERT_ALTNAME_INVALID', 'Hostname mismatch'],

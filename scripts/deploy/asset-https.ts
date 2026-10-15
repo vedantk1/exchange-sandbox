@@ -5,7 +5,14 @@ export interface AssetResponse {
   status: number;
   type: string;
   cache: string;
+  advertisesHttp3: boolean;
   body: string;
+}
+
+/** Retain only protocol presence, never an advertised host, port or raw header. */
+function advertisesHttp3(value: string | string[] | undefined): boolean {
+  const header = Array.isArray(value) ? value.join(',') : (value ?? '');
+  return /(?:^|,)\s*h3(?:-\d+)?\s*=/i.test(header);
 }
 
 class AssetTransportError extends Error {
@@ -55,6 +62,7 @@ export async function readHttpsAsset(
               status: incoming.statusCode ?? 0,
               type: incoming.headers['content-type'] ?? '',
               cache: incoming.headers['cache-control'] ?? '',
+              advertisesHttp3: advertisesHttp3(incoming.headers['alt-svc']),
               body,
             }),
           );

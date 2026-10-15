@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { formatLoginCheckpoint } from './acceptance/login.js';
+import { formatLoginSubmissionCheckpoint } from './acceptance/submission.js';
+import { formatRuntimeCheckpoint } from './acceptance/runtime-checkpoint.js';
 import { acceptanceReport, type AcceptanceStage } from './acceptance/report.js';
 import { runSelfHostAcceptance, type SelfHostAcceptanceResult } from './verify-self-host.js';
 
@@ -53,6 +55,8 @@ interface Failure {
   reason: FailureReason;
   code: string | null;
   checkpoint: Record<string, unknown> | null;
+  submissionCheckpoint: Record<string, unknown> | null;
+  runtimeCheckpoint: Record<string, unknown> | null;
   browserCleanupFailed: boolean;
 }
 
@@ -60,6 +64,10 @@ const network =
   '(?:CONNECTION_RESET|CONNECTION_REFUSED|CONNECTION_CLOSED|CERTIFICATE|TLS_PROTOCOL|HTTP2_PROTOCOL|QUIC_PROTOCOL|ABORTED|TIMEOUT|CONTENT_DECODING|OTHER)';
 const loginCode = new RegExp(
   '^ACCEPTANCE_LOGIN_(?:ADMIN|SELLER|BUYER)_(?:NAVIGATION|RENDER|SUBMISSION|SYNC|' +
+    'FILL_HANDLE|FILL_PASSWORD|CLICK|POST_RESPONSE|POST_IN_FLIGHT|POST_NOT_REQUESTED|' +
+    'POST_HTTP_(?:[1-5][0-9]{2}|OTHER)|POST_REQUEST_FAILED_' +
+    network +
+    '|' +
     '(?:DOCUMENT|SESSION)_HTTP_(?:[1-5][0-9]{2}|OTHER)|' +
     'ENTRY_SCRIPT_HTTP_[45][0-9]{2}|ENTRY_SCRIPT_REQUEST_FAILED_' +
     network +
@@ -84,6 +92,8 @@ const fixedCodes = new Set([
 function failureDetails(value: SelfHostAcceptanceResult['failure']) {
   const code = value?.code;
   const checkpoint = formatLoginCheckpoint(value?.checkpoint);
+  const submissionCheckpoint = formatLoginSubmissionCheckpoint(value?.submissionCheckpoint);
+  const runtimeCheckpoint = formatRuntimeCheckpoint(value?.runtimeCheckpoint);
   return {
     code:
       typeof code === 'string' && (fixedCodes.has(code) || loginCode.test(code))
@@ -92,6 +102,12 @@ function failureDetails(value: SelfHostAcceptanceResult['failure']) {
           ? 'ACCEPTANCE_FAILED'
           : null,
     checkpoint: checkpoint ? (JSON.parse(checkpoint) as Record<string, unknown>) : null,
+    submissionCheckpoint: submissionCheckpoint
+      ? (JSON.parse(submissionCheckpoint) as Record<string, unknown>)
+      : null,
+    runtimeCheckpoint: runtimeCheckpoint
+      ? (JSON.parse(runtimeCheckpoint) as Record<string, unknown>)
+      : null,
     browserCleanupFailed: value?.browserCleanupFailed === true,
   };
 }
@@ -149,6 +165,8 @@ export async function runStartupChecks(
           reason: interrupted(),
           code: null,
           checkpoint: null,
+          submissionCheckpoint: null,
+          runtimeCheckpoint: null,
           browserCleanupFailed: false,
         };
         break;
@@ -191,6 +209,8 @@ export async function runStartupChecks(
           reason: signal.aborted ? interrupted() : 'RESULT_UNAVAILABLE',
           code: null,
           checkpoint: null,
+          submissionCheckpoint: null,
+          runtimeCheckpoint: null,
           browserCleanupFailed: false,
         };
       }
