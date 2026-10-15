@@ -74,7 +74,7 @@ To reproduce the packaged acceptance journey locally, follow [fresh Compose acce
 
 For the bounded five-installation release exercise, use `pnpm selfhost:startup-checks [api-image] [web-image]`. It stops on the first failure and writes a sanitized aggregate; see [startup checks and their limits](docs/RELEASE.md#bounded-startup-checks).
 
-Recorded results and their limits are documented in the [development evidence](docs/DEVELOPMENT.md#evidence-and-limitations).
+The [release verification summary](docs/RELEASE.md#release-verification) records the published source, retained evidence and measurement limits. [Development validation](docs/DEVELOPMENT.md#evidence-and-limitations) explains the test layers and how to reproduce checks.
 
 ## Project documentation
 
